@@ -1,0 +1,145 @@
+BUSINESS_DIAGNOSTIC {"wire": {"schema_version": 3, "wind_farm_id": "e2e-final", "device_config_id": "device_e2e-final_v1.0.1", "device_id": "WTG_SIM01", "data_level": "business", "sample_time": "2026-11-28T04:26:06.936877Z", "points": {"blade_1_pitch_angle": [0.343774676322937, 1], "blade_2_pitch_angle": [0.343774676322937, 1], "blade_3_pitch_angle": [0.343774676322937, 1], "generator_speed": [1440.6085205078125, 1], "generator_temperature": [24.9997501373291, 1], "generator_torque": [0.0005737178726121783, 1], "power_factor": [1.0, 1], "rotor_speed": [14.406085968017578, 1], "sim_active_power": [79.75691223144531, 1], "sim_active_power_setpoint": [833.3333129882812, 1], "sim_aerodynamic_power": [2582860.5, 1], "sim_aerodynamic_torque": [1721906.875, 1], "sim_available_power": [2000000.0, 1], "sim_control_mode": [1, 1], "sim_control_result": [0, 1], "sim_converter_current": [0.06673575937747955, 1], "sim_converter_losses": [6.794267177581787, 1], "sim_effective_wind_speed": [10.0, 1], "sim_fault_status": [0, 1], "sim_pitch_rate_1": [6.87549352645874, 1], "sim_pitch_rate_2": [6.87549352645874, 1], "sim_pitch_rate_3": [6.87549352645874, 1], "sim_power_coefficient": [0.37285715341567993, 1], "sim_power_limit_setpoint": [2000000.0, 1], "sim_reactive_power": [0.0, 1], "sim_reactive_power_setpoint": [0.0, 1], "sim_running_status": [1, 1], "sim_shaft_torque": [57.371788024902344, 1], "sim_tip_speed_ratio": [9.0, 1], "sim_yaw_angle": [0.0, 1], "sim_yaw_error": [0.0, 1], "wind_speed": [10.0, 1]}}, "groups": [{"point_table_id": "point_table_modbus_wtg_sim_v1.2.0", "schema_fingerprint": "e3e1c0f695dbb375a5de9d41de8fe7dce168fd90872c79f6589fd6baa13d2586", "columns": ["active_power"], "rows": [{"sample_time": "2026-11-28T04:26:05.036148+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.136320+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.236199+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.336137+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.436746+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.536031+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.636566+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.736004+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.836309+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:05.936874+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.036110+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.136804+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.236131+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.336580+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.436591+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.536686+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.636405+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.736446+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.836475+00:00", "values": ["value_f64: 0\n"]}, {"sample_time": "2026-11-28T04:26:06.936877+00:00", "values": ["value_f64: 79.756912231445312\n"]}, {"sample_time": "2026-11-28T04:26:07.036240+00:00", "values": ["value_f64: 225.57945251464844\n"]}, {"sample_time": "2026-11-28T04:26:07.136391+00:00", "values": ["value_f64: 354.78390502929688\n"]}, {"sample_time": "2026-11-28T04:26:07.236058+00:00", "values": ["value_f64: 469.16439819335938\n"]}, {"sample_time": "2026-11-28T04:26:07.336479+00:00", "values": ["value_f64: 570.335205078125\n"]}, {"sample_time": "2026-11-28T04:26:07.436110+00:00", "values": ["value_f64: 659.74627685546875\n"]}, {"sample_time": "2026-11-28T04:26:07.536288+00:00", "values": ["value_f64: 738.6978759765625\n"]}, {"sample_time": "2026-11-28T04:26:07.636896+00:00", "values": ["value_f64: 808.35443115234375\n"]}, {"sample_time": "2026-11-28T04:26:07.735916+00:00", "values": ["value_f64: 869.75738525390625\n"]}, {"sample_time": "2026-11-28T04:26:07.836824+00:00", "values": ["value_f64: 923.83721923828125\n"]}, {"sample_time": "2026-11-28T04:26:07.936130+00:00", "values": ["value_f64: 971.42413330078125\n"]}, {"sample_time": "2026-11-28T04:26:08.036402+00:00", "values": ["value_f64: 1013.25830078125\n"]}, {"sample_time": "2026-11-28T04:26:08.136673+00:00", "values": ["value_f64: 1049.9989013671875\n"]}, {"sample_time": "2026-11-28T04:26:08.236694+00:00", "values": ["value_f64: 1082.2327880859375\n"]}, {"sample_time": "2026-11-28T04:26:08.336770+00:00", "values": ["value_f64: 1110.4815673828125\n"]}, {"sample_time": "2026-11-28T04:26:08.435963+00:00", "values": ["value_f64: 1135.2086181640625\n"]}, {"sample_time": "2026-11-28T04:26:08.536142+00:00", "values": ["value_f64: 1156.8255615234375\n"]}, {"sample_time": "2026-11-28T04:26:08.636958+00:00", "values": ["value_f64: 1175.69775390625\n"]}, {"sample_time": "2026-11-28T04:26:08.736546+00:00", "values": ["value_f64: 1192.148681640625\n"]}, {"sample_time": "2026-11-28T04:26:08.836821+00:00", "values": ["value_f64: 1206.4654541015625\n"]}, {"sample_time": "2026-11-28T04:26:08.936457+00:00", "values": ["value_f64: 1218.9022216796875\n"]}]}]}
+F
+=================================== FAILURES ===================================
+______________ test_business_mapping_reaches_storage_and_tdengine ______________
+
+business_started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-397/test_business_mapping_reaches_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_business_mapping_reaches_storage_and_tdengine(
+        business_started: EightServiceHarness,
+    ) -> None:
+        """仿真映射证明代码路径，不将配置哈希解释为 OEM 语义批准。"""
+        harness = business_started
+        delivery = harness.cli("sink", "start", "e2e_kafka_protocol", "--yes", timeout=90)
+        assert delivery["status"] == "SUCCESS", delivery
+        started_at = datetime.now(UTC)
+    
+        async def collect() -> tuple[dict[str, Any], str]:
+            consumer = AIOKafkaConsumer(
+                TOPIC,
+                bootstrap_servers=harness.stack.kafka,
+                group_id=None,
+                auto_offset_reset="latest",
+                enable_auto_commit=False,
+            )
+            await consumer.start()
+            try:
+                deadline = asyncio.get_running_loop().time() + 15
+                while not consumer.assignment():
+                    await consumer.getmany(timeout_ms=250)
+                    assert asyncio.get_running_loop().time() < deadline
+                drain_until = asyncio.get_running_loop().time() + 2
+                while asyncio.get_running_loop().time() < drain_until:
+                    if not await consumer.getmany(timeout_ms=250, max_records=1000):
+                        break
+                created = harness.cli(
+                    "data-generator", "start", "e2e-plant-physical", "--yes", timeout=90
+                )
+                assert created["status"] == "SUCCESS", created
+                deadline = asyncio.get_running_loop().time() + 90
+                while asyncio.get_running_loop().time() < deadline:
+                    messages = await consumer.getmany(timeout_ms=1000, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("schema_version") != 3
+                                or row.get("data_level") != "business"
+                                or row.get("device_config_id") != "device_e2e-final_v1.0.1"
+                                or row.get("device_id") != DEVICE
+                            ):
+                                continue
+                            entry = row.get("points", {}).get(BUSINESS_POINT)
+                            if (
+                                isinstance(entry, list)
+                                and len(entry) == 2
+                                and type(entry[0]) in (int, float)
+                                and entry[1] == 1
+                                and _truth_matches(harness, row["sample_time"], float(entry[0]))
+                            ):
+                                return row, str(created["data"]["generation_id"])
+                raise AssertionError("no independently matched live BUSINESS Kafka row")
+            finally:
+                await consumer.stop()
+    
+        wire, generation_id = asyncio.run(collect())
+        expected_time = _unix_us(_sample_time(wire["sample_time"]))
+        expected_value = float(wire["points"][BUSINESS_POINT][0])
+        token = harness.env["WIND_HUB_STORAGE_OPERATOR_TOKEN"]
+        start_ts, end_ts = Timestamp(), Timestamp()
+        start_ts.FromDatetime(started_at - timedelta(minutes=1))
+        end_ts.FromDatetime(started_at + timedelta(minutes=4))
+        metadata = (("authorization", f"Bearer {token}"),)
+        request = storage_pb.QuerySamplesRequest(
+            filter=storage_pb.StorageFilter(
+                wind_farm_id="e2e-final",
+                device_ids=(DEVICE,),
+                data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
+                point_ids=(BUSINESS_POINT,),
+                start_time=start_ts,
+                end_time=end_ts,
+            ),
+            page_size=1000,
+        )
+        with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
+            stub = storage_rpc.StorageServiceStub(channel)
+            deadline = time.monotonic() + 90
+            selected_group: storage_pb.StorageGroup | None = None
+            while time.monotonic() < deadline:
+                groups = _query_groups(stub, request, metadata)
+                for group in groups:
+                    columns = tuple(column.point_id for column in group.columns)
+                    if BUSINESS_POINT not in columns:
+                        continue
+                    index = columns.index(BUSINESS_POINT)
+                    for row in group.rows:
+                        if _unix_us(row.sample_time.ToDatetime(tzinfo=UTC)) != expected_time:
+                            continue
+                        value = row.values[index]
+                        if value.WhichOneof(
+                            "value"
+                        ) == "value_f64" and value.value_f64 == pytest.approx(
+                            expected_value, rel=1e-6, abs=1e-5
+                        ):
+                            selected_group = group
+                            break
+                    if selected_group is not None:
+                        break
+                if selected_group is not None:
+                    break
+                time.sleep(1)
+        diagnostic_groups = [
+            {
+                "point_table_id": group.point_table_id,
+                "schema_fingerprint": group.schema_fingerprint,
+                "columns": [column.point_id for column in group.columns],
+                "rows": [
+                    {
+                        "sample_time": row.sample_time.ToDatetime(tzinfo=UTC).isoformat(),
+                        "values": [str(value) for value in row.values],
+                    }
+                    for row in group.rows
+                    if abs(
+                        (_unix_us(row.sample_time.ToDatetime(tzinfo=UTC)) - expected_time) / 1_000_000
+                    )
+                    <= 2
+                ],
+            }
+            for group in groups
+        ]
+        print("BUSINESS_DIAGNOSTIC", json.dumps({"wire": wire, "groups": diagnostic_groups}))
+>       assert selected_group is not None, {
+            "reason": "Storage RPC did not return the live BUSINESS row",
+            "wire": wire,
+            "groups": groups,
+        }
+E       AssertionError: {'groups': [wind_farm_id: "e2e-final"
+E         device_id: "WTG_SIM01"
+E         device_type: "turbine"
+E         point_table_id: "point_table_modbu...74676322937, 1], 'blade_3_pitch_angle': [0.343774676322937, 1], 'generator_speed': [1440.6085205078125, 1], ...}, ...}}
+E       assert None is not None
+
+tests/system/e2e/eight_service/test_e2e_eight_service_business.py:180: AssertionError
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_eight_service_business.py::test_business_mapping_reaches_storage_and_tdengine
+1 failed in 121.77s (0:02:01)

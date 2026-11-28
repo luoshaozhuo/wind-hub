@@ -1,0 +1,7 @@
+.                                                                        [100%]
+- generated xml file: /home/luosh/wind-hub/docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/golden_retest.xml -
+============================= slowest 10 durations =============================
+32.73s call     tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py::test_pv_bess_four_output_golden
+20.12s setup    tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py::test_pv_bess_four_output_golden
+3.66s teardown tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py::test_pv_bess_four_output_golden
+1 passed in 56.53s

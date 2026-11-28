@@ -1,0 +1,108 @@
+E..                                                                      [100%]
+==================================== ERRORS ====================================
+_____ ERROR at setup of test_business_mapping_reaches_storage_and_tdengine _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7727e018cf50>
+request = <SubRequest 'business_started' for <Function test_business_mapping_reaches_storage_and_tdengine>>
+
+    @pytest.fixture
+    def business_started(
+        monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+    ) -> Iterator[Any]:
+        monkeypatch.setenv("EIGHT_SERVICE_SINK_DATA_LEVEL", "business")
+>       yield request.getfixturevalue("started")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_business.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:549: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:640: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1128: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1196: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:930: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+tests/system/e2e/eight_service/conftest.py:419: in started
+    harness.wait_healthy(name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-393/test_business_mapping_reaches_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'sink'
+
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+            business = (items[0].get("business") if items else {}) or {}
+            if business.get("health") == "HEALTHY":
+                return last
+            time.sleep(0.5)
+>       raise AssertionError(
+            f"{name} did not become HEALTHY: {last}; {_service_load_has_problem(self, name, name)}"
+        )
+E       AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '<AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n>'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; ile "/home/luosh/wind-hub/src/sink_service/main.py", line 209, in <module>
+E           main()
+E         File "/home/luosh/wind-hub/src/sink_service/main.py", line 205, in main
+E           asyncio.run(run_sink_service(args.config_root, args.service_file))
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E           return runner.run(main)
+E                  ^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E           return self._loop.run_until_complete(task)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E           return future.result()
+E                  ^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/main.py", line 52, in run_sink_service
+E           snapshot = read_snapshot(config_root, config_root / service_file)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 143, in read_snapshot
+E           return validate_snapshot(tuple(files))
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 90, in validate_snapshot
+E           return validate_semantics(files, docs)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/application/config.py", line 537, in validate_snapshot
+E           _validate_delivery(delivery_id, definition, docs, sinks, service, template_root)
+E         File "/home/luosh/wind-hub/src/sink_service/application/config.py", line 437, in _validate_delivery
+E           approved = expect_mapping(
+E                      ^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/domain/config.py", line 62, in expect_mapping
+E           raise ConfigurationError(f"{location}: expected mapping with string keys")
+E       sink_service.domain.config.ConfigurationError: config_sync.approved_point_table_manifests: expected mapping with string keys
+
+tests/system/e2e/eight_service/conftest.py:269: AssertionError
+=========================== short test summary info ============================
+ERROR tests/system/e2e/eight_service/test_e2e_eight_service_business.py::test_business_mapping_reaches_storage_and_tdengine
+2 passed, 1 error in 189.77s (0:03:09)

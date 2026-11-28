@@ -1,0 +1,81 @@
+    PID    PPID ELAPSED COMMAND
+      1       0  216783 /sbin/init
+      2       1  216783 /init
+      7       2  216783 plan9 --control-socket 7 --log-level 4 --server-fd 8 --pipe-fd 10 --log-truncate
+     47       1  216778 /usr/lib/systemd/systemd-journald
+     81       1  216778 /usr/lib/systemd/systemd-resolved
+     88       1  216778 /usr/lib/systemd/systemd-udevd
+    116       1  216778 /bin/sh /usr/lib/systemd/scripts/chronyd-starter.sh -n -F 1
+    117       1  216778 /usr/sbin/cron -f -P
+    118       1  216778 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+    140       1  216778 /usr/bin/python3 /usr/bin/networkd-dispatcher --run-startup-triggers
+    179       1  216778 /usr/lib/systemd/systemd-logind
+    191       1  216778 /usr/sbin/rsyslogd -n -iNONE
+    201       1  216778 /usr/sbin/agetty --noreset --noclear --issue-file=/etc/issue:/etc/issue.d:/run/issue.d:/usr/lib/issue.d --keep-baud 115200,57600,38400,9600 - vt220
+    227     116  216778 /usr/sbin/chronyd -n -F 1 -x
+    231     227  216778 /usr/sbin/chronyd -n -F 1 -x
+    248       1  216778 /usr/bin/python3 /usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal
+    307       1  216778 /usr/lib/systemd/systemd --user
+    309     307  216778 (sd-pam)
+    334     307  216778 /usr/bin/python3 /home/luosh/.local/bin/codex-host-proxy-forwarder.py
+    380       2  216777 login -- luosh
+    402       2  216777 /init
+    403     402  216777 /init
+    404     403  216777 sh -c "$VSCODE_WSL_EXT_LOCATION/scripts/wslServer.sh" 8a14f0cc1b08d531eb83255ea3764ae22aa932b5 stable code-server .vscode-server --host=127.0.0.1 --port=0 --connection-token=18629868-47124976-1123540410-3591235502 --use-host-proxy --without-browser-env-var --disable-websocket-compression --accept-server-license-terms --telemetry-level=all
+    405     404  216777 sh /mnt/c/Users/luosh/.vscode/extensions/ms-vscode-remote.remote-wsl-1.104.7/scripts/wslServer.sh 8a14f0cc1b08d531eb83255ea3764ae22aa932b5 stable code-server .vscode-server --host=127.0.0.1 --port=0 --connection-token=18629868-47124976-1123540410-3591235502 --use-host-proxy --without-browser-env-var --disable-websocket-compression --accept-server-license-terms --telemetry-level=all
+    411     405  216777 sh /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/bin/code-server --host=127.0.0.1 --port=0 --connection-token=18629868-47124976-1123540410-3591235502 --use-host-proxy --without-browser-env-var --disable-websocket-compression --accept-server-license-terms --telemetry-level=all
+    415     411  216777 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/server-main.js --host=127.0.0.1 --port=0 --connection-token=18629868-47124976-1123540410-3591235502 --use-host-proxy --without-browser-env-var --disable-websocket-compression --accept-server-license-terms --telemetry-level=all
+    440     380  216777 -bash
+    554     415  216776 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/bootstrap-fork --type=agentHost --logsPath /home/luosh/.vscode-server/data/logs/20261125T185301 --user-data-dir /home/luosh/.vscode-server/data --telemetry-level all
+    630     415  216774 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/bootstrap-fork --type=ptyHost --logsPath /home/luosh/.vscode-server/data/logs/20261125T185301
+   1207     307  216772 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+   7083       2  215321 /init
+   7084    7083  215321 /init
+   7086    7084  215321 sh
+   7105       2  215319 login -- root
+   7215       1  215319 /usr/lib/systemd/systemd --user
+   7217    7215  215319 (sd-pam)
+   7245    7105  215319 -bash
+   7369    7083  215317 /init
+   7370    7369  215317 /mnt/wsl/docker-desktop/docker-desktop-user-distro proxy --distro-name Ubuntu2604 --docker-desktop-root /mnt/wsl/docker-desktop C:\Program Files\Docker\Docker\resources
+ 196011       1  177304 /usr/lib/polkit-1/polkitd --no-debug --log-level=notice
+ 211459     554  173002 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/bootstrap-fork --type=fileWatcher
+ 233168       2  172854 /init
+ 233169  233168  172854 /init
+ 233170  233169  172854 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node -e const net = require('net'); process.stdin.pause(); const client = net.createConnection({ host: '127.0.0.1', port: 42771 }, () => { client.pipe(process.stdout); process.stdin.pipe(client); }); client.on('close', function (hadError) { console.error(hadError ? 'Remote close with error' : 'Remote close'); process.exit(hadError ? 1 : 0); }); client.on('error', function (err) { process.stderr.write(err && (err.stack || err.message) || String(err)); });
+ 233177       2  172854 /init
+ 233178  233177  172854 /init
+ 233179  233178  172854 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node -e const net = require('net'); process.stdin.pause(); const client = net.createConnection({ host: '127.0.0.1', port: 42771 }, () => { client.pipe(process.stdout); process.stdin.pipe(client); }); client.on('close', function (hadError) { console.error(hadError ? 'Remote close with error' : 'Remote close'); process.exit(hadError ? 1 : 0); }); client.on('error', function (err) { process.stderr.write(err && (err.stack || err.message) || String(err)); });
+ 233180     415  172854 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/bootstrap-fork --type=fileWatcher
+ 233197     415  172854 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node --dns-result-order=ipv4first /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/bootstrap-fork --type=extensionHost --transformURIs --useHostProxy=true
+ 233231     630  172852 /bin/bash --init-file /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
+ 233266       2  172852 /init
+ 233267  233266  172852 /init
+ 233268  233267  172852 /bin/sh -c cd '/home/luosh/wind-hub' && /bin/sh
+ 233269  233268  172852 /bin/sh
+ 233293  233269  172852 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-remote-containers/dist/vscode-remote-containers-server-0.481.0.js
+ 233517  233197  172851 /home/luosh/.vscode-server/extensions/ms-python.vscode-python-envs-1.44.0-linux-x64/python-env-tools/bin/pet server
+ 233650  233293  172851 /bin/sh
+ 233747     630  172850 /bin/bash --init-file /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-bash.sh
+ 233769  233197  172850 /home/luosh/.vscode-server/extensions/openai.chatgpt-26.1120.50957-linux-x64/bin/linux-x86_64/codex -c features.code_mode_host=true -c features.windows_sandbox_service=true app-server --analytics-default-enabled
+ 233962  233197  172849 /home/luosh/.vscode-server/extensions/anthropic.claude-code-2.1.332-linux-x64/resources/native-binary/claude --output-format stream-json --verbose --input-format stream-json --max-thinking-tokens=31999 --permission-prompt-tool=stdio --setting-sources=user,project,local --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --debug --debug-to-stderr --enable-auth-status --no-chrome --replay-user-messages
+ 234254     554  172813 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node_modules/@github/copilot-sdk-linux-x64/prebuilds/linux-x64/copilot-runtime --headless --no-auto-update --log-level info --stdio --no-auto-login
+ 235282  233197  172586 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/extensions/markdown-language-features/dist/serverWorkerMain --node-ipc --clientProcessId=233197
+ 235481  233197  172548 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/extensions/json-language-features/server/dist/node/jsonServerMain --node-ipc --clientProcessId=233197
+ 254035  233197  167080 /home/luosh/.vscode-server/extensions/anthropic.claude-code-2.1.332-linux-x64/resources/native-binary/claude --output-format stream-json --verbose --input-format stream-json --max-thinking-tokens=31999 --permission-prompt-tool=stdio --setting-sources=user,project,local --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --debug --debug-to-stderr --enable-auth-status --no-chrome --replay-user-messages
+ 257602  233197  166598 /home/luosh/.vscode-server/extensions/ms-vscode.cpptools-1.35.6-linux-x64/bin/cpptools
+ 257687     403  166592 /home/luosh/.vscode-server/extensions/ms-vscode.cpptools-1.35.6-linux-x64/bin/cpptools-srv2 -s {F7F97F19-0FF4-47BC-A4E4-773BF53D8646} -p 257602 -i TagParser -t /tmp/.vscode-cpptools-1000/cpptools/crashes/c45e8a5fb8e1c4ff5eebb024c8b90484
+ 260213  233197  166254 /home/luosh/.vscode-server/extensions/redhat.java-1.58.0-linux-x64/jre/25.0.4.1-linux-x86_64/bin/java -Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 --add-modules=ALL-SYSTEM --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/sun.nio.fs=ALL-UNNAMED -Declipse.application=org.eclipse.jdt.ls.core.id1 -Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product -Djava.import.generatesMetadataFilesAtProjectRoot=false -Dm2e.project.cache.size=50 -DDetectVMInstallationsJob.disabled=true -Dfile.encoding=utf8 -XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx2G -Xms100m -Xlog:disable -javaagent:/home/luosh/.vscode-server/extensions/redhat.java-1.58.0-linux-x64/lombok/lombok-1.18.39-4050.jar -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/luosh/.vscode-server/data/User/workspaceStorage/1b78c618a52df07098b7488110772af0/redhat.java -Daether.dependencyCollector.impl=bf -jar /home/luosh/.vscode-server/extensions/redhat.java-1.58.0-linux-x64/server/plugins/org.eclipse.equinox.launcher_1.8.0.v20260804-1928.jar -configuration /home/luosh/.vscode-server/data/User/globalStorage/redhat.java/1.58.0/config_linux -data /home/luosh/.vscode-server/data/User/workspaceStorage/1b78c618a52df07098b7488110772af0/redhat.java/jdt_ws --pipe=/run/user/1000/lsp-2af7375f571beca26362169751256405.sock
+ 325850  233769  159482 /home/luosh/.vscode-server/extensions/openai.chatgpt-26.1120.50957-linux-x64/bin/linux-x86_64/codex-code-mode-host --listen grpc+stdio://
+ 533300  233197  143901 /home/luosh/.vscode-server/extensions/anthropic.claude-code-2.1.332-linux-x64/resources/native-binary/claude --output-format stream-json --verbose --input-format stream-json --max-thinking-tokens=31999 --permission-prompt-tool=stdio --setting-sources=user,project,local --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --debug --debug-to-stderr --enable-auth-status --no-chrome --replay-user-messages
+ 566815  233197  142882 /home/luosh/.vscode-server/bin/8a14f0cc1b08d531eb83255ea3764ae22aa932b5/node /home/luosh/.vscode-server/extensions/ms-python.vscode-pylance-2026.4.1/dist/server.bundle.js --cancellationReceive=file:8dbb350f17e9d1a0205e3a9e286ad97c454b7a1d38 --node-ipc --clientProcessId=233197
+1918640  233197   49490 /home/luosh/.vscode-server/extensions/anthropic.claude-code-2.1.332-linux-x64/resources/native-binary/claude --output-format stream-json --verbose --input-format stream-json --max-thinking-tokens=31999 --permission-prompt-tool=stdio --setting-sources=user,project,local --permission-mode=bypassPermissions --allow-dangerously-skip-permissions --debug --debug-to-stderr --enable-auth-status --no-chrome --replay-user-messages
+2575360       1     487 /usr/libexec/wsl-pro-service
+2581062 1918640      10 /bin/bash -c source /home/luosh/.claude/shell-snapshots/snapshot-bash-1795783694015-xaxmqy.sh 2>/dev/null || true && source /home/luosh/wind-hub/ai_shared/agent_config/activate-env.sh : && \builtin shopt -u extglob 2>/dev/null || true && { \builtin unalias -- 'which'; \builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'python -m pytest tests/system/e2e/full_chain -q -ra --durations=20 --junitxml=docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/all_58.xml > docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/all_58.log 2>&1' < /dev/null && pwd -P >| /tmp/claude-8b5b-cwd
+2581066 2581062      10 python -m pytest tests/system/e2e/full_chain -q -ra --durations=20 --junitxml=docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/all_58.xml
+2581571      88       1 (udev-worker)
+2581572      88       1 (udev-worker)
+2581576     403       1 /home/luosh/miniconda3/envs/wind-hub/bin/python -m industrial_gateway.main --config /tmp/pytest-of-luosh/pytest-375/full-chain0/plant-configs/services/service_gateway-full-chain_v1.0.0.yaml --project-root /tmp/pytest-of-luosh/pytest-375/full-chain0/plant-configs
+2581646 1918640       0 /bin/bash -c source /home/luosh/.claude/shell-snapshots/snapshot-bash-1795783694015-xaxmqy.sh 2>/dev/null || true && source /home/luosh/wind-hub/ai_shared/agent_config/activate-env.sh : && \builtin shopt -u extglob 2>/dev/null || true && { \builtin unalias -- 'which'; \builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'ps -eo pid,ppid,etimes,args --sort=pid > /home/luosh/wind-hub/docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/processes_before_cleanup_check.txt && docker ps --format '"'"'{{.Names}}\t{{.Image}}\t{{.Status}}'"'"' > /home/luosh/wind-hub/docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/docker_before_cleanup_check.txt' < /dev/null && pwd -P >| /tmp/claude-c7e3-cwd
+2581686 2581066       0 /home/luosh/miniconda3/envs/wind-hub/bin/python -m cli.main --config /tmp/pytest-of-luosh/pytest-375/full-chain0/cli-realtime.yaml --format json service start data-generator --yes
+2581687 2581646       0 ps -eo pid,ppid,etimes,args --sort=pid

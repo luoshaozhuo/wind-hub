@@ -1,0 +1,140 @@
+..................F.......................................               [100%]
+=================================== FAILURES ===================================
+_______________________ test_pv_bess_four_output_golden ________________________
+
+full_chain = <tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x73348f4e7dd0>
+
+    async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
+        """只启动 PV/BESS 任务，不重跑 WTG；四出口均绑定本次 Generation。"""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        started: list[tuple[Any, str]] = []
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in GOLDEN_DEVICES:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+                    started.append((config, device_id))
+            started_generation = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "e2e-pv-1000",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            assert started_generation["data"]["accepted"] is True
+            generation_id = str(started_generation["data"]["generation_id"])
+            harness.generation_id = generation_id
+            for _ in range(100):
+                path = harness.recording_path(generation_id)
+                if path.is_file() and path.stat().st_size:
+                    break
+                await asyncio.sleep(0.1)
+            first_row = harness.read_recording(generation_id)[0]
+            generation_start = _time(first_row["produced_at"])
+            golden_start = generation_start + timedelta(seconds=20)
+            for _ in range(150):
+                rows = harness.read_recording(generation_id)
+                if _time(rows[-1]["produced_at"]) >= golden_start:
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                raise AssertionError("PV source did not reach its solar-noon Golden window")
+    
+            for device_id, point_id in GOLDEN_DEVICES.items():
+                redis = await harness.sink.wait_redis_value(
+                    harness.redis_key(device_id, point_id),
+                    timeout=90,
+                    match=lambda value: _time(value["sample_time"]) >= generation_start,
+                )
+                assert redis["device_id"] == device_id
+                assert redis["point_id"] == point_id
+                assert redis["quality"] == "good"
+                redis_sample_id = str(redis["sample_id"])
+                assert redis_sample_id
+                redis_value = _number(redis["value"])
+                redis_sample_time = _time(redis["sample_time"])
+                source_time, source_value, source_delta, tolerance = _source_truth(
+                    harness, generation_id, device_id, point_id, redis_sample_time
+                )
+                assert abs(redis_value - source_value) <= tolerance
+    
+>               gateway = await harness.poll(
+                    harness.cli_rt,
+                    "gateway",
+                    "read",
+                    f"gw-{device_id.lower()}",
+                    SINK_TARGET_POINT,
+                    predicate=lambda data, expected=redis_value, limit=tolerance: bool(
+                        data.get("values")
+                    )
+                    and data["values"][0].get("quality") == "GOOD"
+                    and abs(_number(data["values"][0]["value"]) - expected) <= limit,
+                    timeout=90,
+                )
+
+tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/full_chain/conftest.py:737: in poll
+    return await self.cli.poll_cli(config, *args, predicate=predicate, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x7334933dba90>
+config = PosixPath('/tmp/pytest-of-luosh/pytest-405/full-chain0/cli-realtime.yaml')
+predicate = <function test_pv_bess_four_output_golden.<locals>.<lambda> at 0x73348db2ec00>
+timeout = 90, args = ('gateway', 'read', 'gw-pv_sim01', 'e2e_sink_target')
+deadline = 223832.856289575
+
+    async def poll_cli(
+        self,
+        config: Path,
+        *args: str,
+        predicate: Callable[[Any], bool],
+        timeout: float = 60,
+    ) -> Any:
+        deadline = time.monotonic() + timeout
+        latest: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            latest = await self.cli(config, *args, check=False)
+            data = latest.get("data")
+            if (
+                latest.get("status") == "SUCCESS"
+                and isinstance(data, dict | list)
+                and predicate(data)
+            ):
+                return data
+            await asyncio.sleep(0.4)
+>       raise AssertionError(
+            f"CLI polling timeout: {' '.join(args)}; last={latest}; logs={self.root}"
+        )
+E       AssertionError: CLI polling timeout: gateway read gw-pv_sim01 e2e_sink_target; last={'schema_version': 1, 'command': 'gateway ReadVariables', 'status': 'SUCCESS', 'target': 'gw-pv_sim01', 'data': {'gateway_id': 'gw-pv_sim01', 'values': [{'point_id': 'e2e_sink_target', 'value': {'double_value': 0.0}, 'quality': 'GOOD', 'sample_timestamp': '2026-11-28T05:39:18.245948Z', 'queried_at': '2026-11-28T05:39:18.295883Z', 'freshness': 'CURRENT', 'error_code': '', 'error_message': ''}]}, 'error_code': None}; logs=/tmp/pytest-of-luosh/pytest-405/full-chain0
+
+tests/cli/test_r1f3_strict_cli_e2e.py:226: AssertionError
+- generated xml file: /home/luosh/wind-hub/docs/audit/d4_final_independent_retest_20261128_evidence/full_chain_agent/retest_58.xml -
+============================= slowest 20 durations =============================
+122.22s call     tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py::test_pv_bess_four_output_golden
+65.73s call     tests/system/e2e/full_chain/test_e2e_lifecycle.py::test_e2e_09_cli_lifecycle_and_worker_cleanup
+35.51s call     tests/system/e2e/full_chain/test_e2e_multirate.py::test_e2e_06_reliable_multirate[wind-plant-physical-0.05]
+35.25s call     tests/system/e2e/full_chain/test_e2e_multirate.py::test_e2e_06_reliable_multirate[e2e-wind-100ms-0.1]
+32.63s call     tests/system/e2e/full_chain/test_e2e_sink_outputs.py::test_e2e_07_four_sink_outputs
+30.34s call     tests/system/e2e/full_chain/test_e2e_seeded.py::test_e2e_05_seeded_physical_input_is_reproducible
+28.84s call     tests/system/e2e/full_chain/test_e2e_smoke.py::test_full_chain_physical_first_value
+27.79s call     tests/system/e2e/full_chain/test_e2e_surface_matrix.py::test_e2e_08_executes_all_73_cli_leaves
+27.58s call     tests/system/e2e/full_chain/test_e2e_wind_step.py::test_e2e_01_wind_step
+25.12s call     tests/system/e2e/full_chain/test_e2e_avc_feedback.py::test_e2e_04_avc_voltage_and_reactive_feedback
+24.71s call     tests/system/e2e/full_chain/test_e2e_resources.py::test_r4e_resources_and_formal_stop_all_release_complete_trees
+24.46s call     tests/system/e2e/full_chain/test_e2e_recovery.py::test_e2e_10_kafka_outage_holds_and_recovers
+21.13s setup    tests/system/e2e/full_chain/test_e2e_multirate.py::test_e2e_06_reliable_multirate[wind-plant-physical-0.05]
+20.80s setup    tests/system/e2e/full_chain/test_e2e_bess_boundaries.py::test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain0]
+20.50s setup    tests/system/e2e/full_chain/test_e2e_multirate.py::test_e2e_06_reliable_multirate[e2e-wind-100ms-0.1]
+20.40s setup    tests/system/e2e/full_chain/test_e2e_bess_boundaries.py::test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain1]
+20.00s setup    tests/system/e2e/full_chain/test_e2e_avc_feedback.py::test_e2e_04_avc_voltage_and_reactive_feedback
+19.84s setup    tests/system/e2e/full_chain/test_e2e_resources.py::test_r4e_resources_and_formal_stop_all_release_complete_trees
+19.14s call     tests/system/e2e/full_chain/test_e2e_semantic_matrix.py::test_cli_semantic_delta_has_exact_exit_and_error_contracts
+18.65s call     tests/system/e2e/full_chain/test_integration_segments.py::test_i07_target_sink_mapping_release_and_lease_fencing
+=========================== short test summary info ============================
+FAILED tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py::test_pv_bess_four_output_golden
+1 failed, 57 passed in 969.77s (0:16:09)

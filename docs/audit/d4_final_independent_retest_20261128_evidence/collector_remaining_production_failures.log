@@ -1,0 +1,191 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_____________ test_uc03_s02_overdue_poll_increments_skipped_slots ______________
+
+collector = <function collector.<locals>.start_collector at 0x79229b028ae0>
+grpc_clients = <function grpc_clients.<locals>.clients at 0x79229b028c20>
+real_nats = RealNats(url='nats://127.0.0.1:57627', container='collector-v1-acceptance-nats-4b8c0c30', client_port=57627)
+modbus_slave = <tests.fixtures.servers.modbus_server.ModbusMockServer object at 0x79229dc6cb10>
+
+    async def test_uc03_s02_overdue_poll_increments_skipped_slots(
+        collector: Callable[..., Any],
+        grpc_clients: ClientsFactory,
+        real_nats: RealNats,
+        modbus_slave: ModbusMockServer,
+    ) -> None:
+        # A real TCP proxy holding every Modbus response for 0.5 s while the task
+        # cadence is 0.2 s makes polls genuinely miss slots on the wire; the
+        # Collector must count the skipped slots rather than silently drift.
+        proxy = DelayedTcpProxy("127.0.0.1", modbus_slave.port, response_delay=0.5)
+        await proxy.start()
+        try:
+            handle = await collector(modbus_port_override=proxy.port, task_interval=0.2)
+            _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
+            await start_task(device_stub, config_stub, MODBUS)
+>           assert await wait_actual(device_stub, MODBUS, {"RUNNING"}, timeout=30) == "RUNNING"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/collector/system/test_collector_acquisition_system.py:157: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+device_stub = <contracts.collector_pb2_grpc.CollectorServiceStub object at 0x79229b001a10>
+device_id = 'modbus-1', expected = {'RUNNING'}
+
+    async def wait_actual(
+        device_stub: CollectorServiceStub,
+        device_id: str,
+        expected: set[str],
+        *,
+        timeout: float = 15.0,
+    ) -> str:
+        deadline = asyncio.get_running_loop().time() + timeout
+        last = ""
+        while asyncio.get_running_loop().time() < deadline:
+            task = await device_stub.GetTask(
+                common.ObjectId(id=await device_task_id(device_stub, device_id))
+            )
+            last = str(task.task.actual_state)
+            if last in expected:
+                return last
+            await asyncio.sleep(0.2)
+>       raise AssertionError(f"{device_id} never reached {expected}; last={last}")
+E       AssertionError: modbus-1 never reached {'RUNNING'}; last=RECOVERING
+
+tests/collector/system/helpers.py:109: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+__________ test_uc05_s03_expired_deadline_marks_later_stages_not_run ___________
+
+collector = <function collector.<locals>.start_collector at 0x79229865a840>
+grpc_clients = <function grpc_clients.<locals>.clients at 0x79229865a8e0>
+
+    async def test_uc05_s03_expired_deadline_marks_later_stages_not_run(
+        collector: Callable[..., Any], grpc_clients: ClientsFactory
+    ) -> None:
+        import asyncio
+    
+        from tests.collector.system.blackhole import TcpBlackhole
+    
+        hole = TcpBlackhole()
+        await hole.start()
+        try:
+            handle = await collector(blackhole_port=hole.port)
+            _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
+            await start_task(device_stub, config_stub, "modbus-hold")
+            await asyncio.sleep(1.0)  # TCP session establishes; no protocol reply ever
+    
+            deadline = await _diagnose(
+                config_stub,
+                target_id="modbus-hold",
+                stages=["NETWORK", "PROTOCOL", "ACQUISITION"],
+                timeout_ms=1,
+            )
+            # A 1 ms budget is consumed by the first probe; whether the TCP
+            # handshake just fits (PASS) or is itself cut short (NOT_RUN), a
+            # budget cut must never be reported as a network FAIL, and remaining
+            # stages honestly say NOT_RUN instead of pretending they ran.
+            assert deadline.stages[0].status in {"PASS", "NOT_RUN"}
+>           assert deadline.stages[1].status == "NOT_RUN"
+E           AssertionError: assert 'FAIL' == 'NOT_RUN'
+E             
+E             - NOT_RUN
+E             + FAIL
+
+tests/collector/system/test_collector_diagnose_system.py:132: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+______________ test_uc08_s03_unsettled_io_shutdown_exits_nonzero _______________
+
+collector = <function collector.<locals>.start_collector at 0x79229aff0cc0>
+grpc_clients = <function grpc_clients.<locals>.clients at 0x79229aff11c0>
+
+    async def test_uc08_s03_unsettled_io_shutdown_exits_nonzero(
+        collector: Callable[..., Any], grpc_clients: ClientsFactory
+    ) -> None:
+        from tests.collector.system.blackhole import TcpBlackhole
+    
+        hole = TcpBlackhole()
+        await hole.start()
+        try:
+            # Shutdown deadline (0.3 s) is shorter than the protocol read timeout
+            # (2 s), so a blackholed read is still in flight when SIGTERM arrives.
+            handle = await collector(blackhole_port=hole.port, shutdown_timeout=0.3)
+            _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
+            await start_task(device_stub, config_stub, "modbus-hold")
+            await asyncio.sleep(0.5)  # session accepted; no protocol reply ever comes
+>           read = await device_stub.ReadPoints(
+                collector_pb.ReadPointsRequest(
+                    device_id="modbus-hold", point_ids=["active_power"], timeout_ms=300
+                ),
+                metadata=(("x-windhub-admin-token", "acceptance-admin-token"),),
+            )
+
+tests/collector/system/test_collector_lifecycle_system.py:138: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <_AioCall of RPC that terminated with:
+	status = device I/O is still unsettled
+	details = "StatusCode.FAILED_PRECONDITION"
+	debug_error_string = "FAILED_PRECONDITION:device I/O is still unsettled"
+>
+
+    def __await__(self) -> Generator[Any, None, ResponseType]:
+        """Wait till the ongoing RPC request finishes."""
+        try:
+            response = yield from self._call_response
+        except asyncio.CancelledError:
+            # Even if we caught all other CancelledError, there is still
+            # this corner case. If the application cancels immediately after
+            # the Call object is created, we will observe this
+            # `CancelledError`.
+            if not self.cancelled():
+                self.cancel()
+            raise
+    
+        # NOTE(lidiz) If we raise RpcError in the task, and users doesn't
+        # 'await' on it. AsyncIO will log 'Task exception was never retrieved'.
+        # Instead, if we move the exception raising here, the spam stops.
+        # Unfortunately, there can only be one 'yield from' in '__await__'. So,
+        # we need to access the private instance variable.
+        if response is cygrpc.EOF:
+            if self._cython_call.is_locally_cancelled():
+                raise asyncio.CancelledError()
+            else:
+>               raise _create_rpc_error(
+                    self._cython_call._initial_metadata,
+                    self._cython_call._status,
+                )
+E               grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+E               	status = StatusCode.FAILED_PRECONDITION
+E               	details = "device I/O is still unsettled"
+E               	debug_error_string = "FAILED_PRECONDITION:device I/O is still unsettled"
+E               >
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/grpc/aio/_call.py:333: AioRpcError
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+=========================== short test summary info ============================
+FAILED tests/collector/system/test_collector_acquisition_system.py::test_uc03_s02_overdue_poll_increments_skipped_slots
+FAILED tests/collector/system/test_collector_diagnose_system.py::test_uc05_s03_expired_deadline_marks_later_stages_not_run
+FAILED tests/collector/system/test_collector_lifecycle_system.py::test_uc08_s03_unsettled_io_shutdown_exits_nonzero
+3 failed in 40.46s
+
+expected_open_failures_exit=1

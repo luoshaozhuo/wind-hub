@@ -1,0 +1,1036 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="12" skipped="0" tests="58" time="1128.636" timestamp="2026-11-28T11:29:08.796753+08:00" hostname="boss"><testcase classname="tests.system.e2e.full_chain.test_e2e_avc_feedback" name="test_e2e_04_avc_voltage_and_reactive_feedback" time="45.874" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_boundaries" name="test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain0]" time="32.210" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_boundaries" name="test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain1]" time="34.020" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_control" name="test_e2e_03_ppc_charge_discharge" time="17.451" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[agc_enable-1]" time="15.187" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[agc_power_setpoint-1500.0]" time="14.963" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_enable-1]" time="15.173" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_voltage_setpoint-1.02]" time="14.869" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_reactive_setpoint-250.0]" time="15.058" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[ffr_enable-1]" time="15.117" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control_security" name="test_e2e_04_request_replay_and_unauthorized_control" time="2.898" /><testcase classname="tests.system.e2e.full_chain.test_e2e_grid_ffr" name="test_e2e_04_frequency_disturbance_ffr" time="5.649" /><testcase classname="tests.system.e2e.full_chain.test_e2e_lifecycle" name="test_e2e_09_cli_lifecycle_and_worker_cleanup" time="70.739" /><testcase classname="tests.system.e2e.full_chain.test_e2e_multirate" name="test_e2e_06_reliable_multirate[wind-plant-physical-0.05]" time="60.163"><failure message="AssertionError: ('WTG_SIM01', 0)&#10;assert 0 &gt;= 4&#10; +  where 0 = len([])">multirate_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49b10a2d0&gt;
+scenario = 'wind-plant-physical', source_period = 0.05
+
+    @pytest.mark.parametrize(
+        ("scenario", "source_period"), [("wind-plant-physical", 0.05), ("e2e-wind-100ms", 0.1)]
+    )
+    async def test_e2e_06_reliable_multirate(
+        multirate_chain: Any, scenario: str, source_period: float
+    ) -&gt; None:
+        """Observe actual downstream sampling cadence rather than configured values alone."""
+        harness = multirate_chain
+        assert harness.sink is not None
+        consumer = AIOKafkaConsumer(
+            harness.sink.kafka_topic,
+            bootstrap_servers=harness.stack.kafka,
+            auto_offset_reset="latest",
+            group_id=f"multirate-{uuid4()}",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        redis_task: asyncio.Task[dict[str, list[datetime]]] | None = None
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in PERIODS:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                scenario,
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            harness.generation_id = str(started["data"]["generation_id"])
+            for _ in range(100):
+                path = harness.recording_path(harness.generation_id)
+                if path.is_file() and path.stat().st_size:
+                    break
+                await asyncio.sleep(0.1)
+            first_row = harness.read_recording(harness.generation_id)[0]
+            source_start = datetime.fromisoformat(first_row["produced_at"].replace("Z", "+00:00"))
+            samples: dict[str, list[datetime]] = {device_id: [] for device_id in PERIODS}
+            deadline = time.monotonic() + 12
+            redis_task = asyncio.create_task(
+                _observe_redis_latest(harness, source_start=source_start, deadline=deadline)
+            )
+            while time.monotonic() &lt; deadline:
+                batches = await consumer.getmany(timeout_ms=1000, max_records=1000)
+                for records in batches.values():
+                    for record in records:
+                        item = json.loads(record.value)
+                        device_id = item.get("device_id")
+                        if (
+                            device_id in PERIODS
+                            and item.get("collector_id") == harness.reliable_collector
+                            and item.get("point_id") == PERIODS[device_id][0]
+                        ):
+                            sample_time = datetime.fromisoformat(
+                                item["sample_time"].replace("Z", "+00:00")
+                            )
+                            if sample_time &gt;= source_start:
+                                samples[device_id].append(sample_time)
+            realtime_samples = await redis_task
+            redis_task = None
+            rows = harness.read_recording(harness.generation_id)
+            source_times = [
+                datetime.fromisoformat(row["produced_at"].replace("Z", "+00:00")) for row in rows
+            ]
+            assert len(source_times) &gt;= 4
+            source_median = statistics.median(
+                (right - left).total_seconds()
+                for left, right in zip(source_times, source_times[1:], strict=False)
+            )
+            assert source_period * 0.5 &lt;= source_median &lt;= source_period * 1.8
+            for device_id, (_, period) in PERIODS.items():
+                times = sorted(set(samples[device_id]))
+&gt;               assert len(times) &gt;= 4, (device_id, len(times))
+E               AssertionError: ('WTG_SIM01', 0)
+E               assert 0 &gt;= 4
+E                +  where 0 = len([])
+
+tests/system/e2e/full_chain/test_e2e_multirate.py:100: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_multirate" name="test_e2e_06_reliable_multirate[e2e-wind-100ms-0.1]" time="60.883"><failure message="AssertionError: ('WTG_SIM01', 0)&#10;assert 0 &gt;= 4&#10; +  where 0 = len([])">multirate_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49b233cd0&gt;
+scenario = 'e2e-wind-100ms', source_period = 0.1
+
+    @pytest.mark.parametrize(
+        ("scenario", "source_period"), [("wind-plant-physical", 0.05), ("e2e-wind-100ms", 0.1)]
+    )
+    async def test_e2e_06_reliable_multirate(
+        multirate_chain: Any, scenario: str, source_period: float
+    ) -&gt; None:
+        """Observe actual downstream sampling cadence rather than configured values alone."""
+        harness = multirate_chain
+        assert harness.sink is not None
+        consumer = AIOKafkaConsumer(
+            harness.sink.kafka_topic,
+            bootstrap_servers=harness.stack.kafka,
+            auto_offset_reset="latest",
+            group_id=f"multirate-{uuid4()}",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        redis_task: asyncio.Task[dict[str, list[datetime]]] | None = None
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in PERIODS:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                scenario,
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            harness.generation_id = str(started["data"]["generation_id"])
+            for _ in range(100):
+                path = harness.recording_path(harness.generation_id)
+                if path.is_file() and path.stat().st_size:
+                    break
+                await asyncio.sleep(0.1)
+            first_row = harness.read_recording(harness.generation_id)[0]
+            source_start = datetime.fromisoformat(first_row["produced_at"].replace("Z", "+00:00"))
+            samples: dict[str, list[datetime]] = {device_id: [] for device_id in PERIODS}
+            deadline = time.monotonic() + 12
+            redis_task = asyncio.create_task(
+                _observe_redis_latest(harness, source_start=source_start, deadline=deadline)
+            )
+            while time.monotonic() &lt; deadline:
+                batches = await consumer.getmany(timeout_ms=1000, max_records=1000)
+                for records in batches.values():
+                    for record in records:
+                        item = json.loads(record.value)
+                        device_id = item.get("device_id")
+                        if (
+                            device_id in PERIODS
+                            and item.get("collector_id") == harness.reliable_collector
+                            and item.get("point_id") == PERIODS[device_id][0]
+                        ):
+                            sample_time = datetime.fromisoformat(
+                                item["sample_time"].replace("Z", "+00:00")
+                            )
+                            if sample_time &gt;= source_start:
+                                samples[device_id].append(sample_time)
+            realtime_samples = await redis_task
+            redis_task = None
+            rows = harness.read_recording(harness.generation_id)
+            source_times = [
+                datetime.fromisoformat(row["produced_at"].replace("Z", "+00:00")) for row in rows
+            ]
+            assert len(source_times) &gt;= 4
+            source_median = statistics.median(
+                (right - left).total_seconds()
+                for left, right in zip(source_times, source_times[1:], strict=False)
+            )
+            assert source_period * 0.5 &lt;= source_median &lt;= source_period * 1.8
+            for device_id, (_, period) in PERIODS.items():
+                times = sorted(set(samples[device_id]))
+&gt;               assert len(times) &gt;= 4, (device_id, len(times))
+E               AssertionError: ('WTG_SIM01', 0)
+E               assert 0 &gt;= 4
+E                +  where 0 = len([])
+
+tests/system/e2e/full_chain/test_e2e_multirate.py:100: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-01-WTG_SIM01-wind_speed]" time="15.870" /><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-02-PV_SIM01-active_power]" time="15.535" /><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-03-BESS_SIM01-soc]" time="15.688" /><testcase classname="tests.system.e2e.full_chain.test_e2e_pv_bess_golden" name="test_pv_bess_four_output_golden" time="122.742"><failure message="AssertionError: CLI polling timeout: gateway read gw-pv_sim01 e2e_sink_target; last={'schema_version': 1, 'command': 'gateway ReadVariables', 'status': 'SUCCESS', 'target': 'gw-pv_sim01', 'data': {'gateway_id': 'gw-pv_sim01', 'values': [{'point_id': 'e2e_sink_target', 'value': {'double_value': 0.0}, 'quality': 'GOOD', 'sample_timestamp': '2026-11-28T03:39:51.143213Z', 'queried_at': '2026-11-28T03:39:51.172719Z', 'freshness': 'CURRENT', 'error_code': '', 'error_message': ''}]}, 'error_code': None}; logs=/tmp/pytest-of-luosh/pytest-375/full-chain0">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_pv_bess_four_output_golden(full_chain: Any) -&gt; None:
+        """只启动 PV/BESS 任务，不重跑 WTG；四出口均绑定本次 Generation。"""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        started: list[tuple[Any, str]] = []
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in GOLDEN_DEVICES:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+                    started.append((config, device_id))
+            started_generation = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "e2e-pv-1000",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            assert started_generation["data"]["accepted"] is True
+            generation_id = str(started_generation["data"]["generation_id"])
+            harness.generation_id = generation_id
+            for _ in range(100):
+                path = harness.recording_path(generation_id)
+                if path.is_file() and path.stat().st_size:
+                    break
+                await asyncio.sleep(0.1)
+            first_row = harness.read_recording(generation_id)[0]
+            generation_start = _time(first_row["produced_at"])
+            golden_start = generation_start + timedelta(seconds=20)
+            for _ in range(150):
+                rows = harness.read_recording(generation_id)
+                if _time(rows[-1]["produced_at"]) &gt;= golden_start:
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                raise AssertionError("PV source did not reach its solar-noon Golden window")
+    
+            for device_id, point_id in GOLDEN_DEVICES.items():
+                redis = await harness.sink.wait_redis_value(
+                    harness.redis_key(device_id, point_id),
+                    timeout=90,
+                    match=lambda value: _time(value["sample_time"]) &gt;= generation_start,
+                )
+                assert redis["device_id"] == device_id
+                assert redis["point_id"] == point_id
+                assert redis["quality"] == "good"
+                redis_sample_id = str(redis["sample_id"])
+                assert redis_sample_id
+                redis_value = _number(redis["value"])
+                redis_sample_time = _time(redis["sample_time"])
+                source_time, source_value, source_delta, tolerance = _source_truth(
+                    harness, generation_id, device_id, point_id, redis_sample_time
+                )
+                assert abs(redis_value - source_value) &lt;= tolerance
+    
+&gt;               gateway = await harness.poll(
+                    harness.cli_rt,
+                    "gateway",
+                    "read",
+                    f"gw-{device_id.lower()}",
+                    SINK_TARGET_POINT,
+                    predicate=lambda data, expected=redis_value, limit=tolerance: bool(
+                        data.get("values")
+                    )
+                    and data["values"][0].get("quality") == "GOOD"
+                    and abs(_number(data["values"][0]["value"]) - expected) &lt;= limit,
+                    timeout=90,
+                )
+
+tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/full_chain/conftest.py:736: in poll
+    return await self.cli.poll_cli(config, *args, predicate=predicate, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x7de49ce19750&gt;
+config = PosixPath('/tmp/pytest-of-luosh/pytest-375/full-chain0/cli-realtime.yaml')
+predicate = &lt;function test_pv_bess_four_output_golden.&lt;locals&gt;.&lt;lambda&gt; at 0x7de49a36b4c0&gt;
+timeout = 90, args = ('gateway', 'read', 'gw-pv_sim01', 'e2e_sink_target')
+deadline = 217357.729877799
+
+    async def poll_cli(
+        self,
+        config: Path,
+        *args: str,
+        predicate: Callable[[Any], bool],
+        timeout: float = 60,
+    ) -&gt; Any:
+        deadline = time.monotonic() + timeout
+        latest: dict[str, Any] = {}
+        while time.monotonic() &lt; deadline:
+            latest = await self.cli(config, *args, check=False)
+            data = latest.get("data")
+            if (
+                latest.get("status") == "SUCCESS"
+                and isinstance(data, dict | list)
+                and predicate(data)
+            ):
+                return data
+            await asyncio.sleep(0.4)
+&gt;       raise AssertionError(
+            f"CLI polling timeout: {' '.join(args)}; last={latest}; logs={self.root}"
+        )
+E       AssertionError: CLI polling timeout: gateway read gw-pv_sim01 e2e_sink_target; last={'schema_version': 1, 'command': 'gateway ReadVariables', 'status': 'SUCCESS', 'target': 'gw-pv_sim01', 'data': {'gateway_id': 'gw-pv_sim01', 'values': [{'point_id': 'e2e_sink_target', 'value': {'double_value': 0.0}, 'quality': 'GOOD', 'sample_timestamp': '2026-11-28T03:39:51.143213Z', 'queried_at': '2026-11-28T03:39:51.172719Z', 'freshness': 'CURRENT', 'error_code': '', 'error_message': ''}]}, 'error_code': None}; logs=/tmp/pytest-of-luosh/pytest-375/full-chain0
+
+tests/cli/test_r1f3_strict_cli_e2e.py:226: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_pv_irradiance" name="test_e2e_02_pv_irradiance_and_capacity" time="15.461" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_redis_recovers_latest_value" time="7.571" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_kafka_outage_holds_and_recovers" time="110.200"><failure message="assert False&#10; +  where False = any(&lt;generator object test_e2e_10_kafka_outage_holds_and_recovers.&lt;locals&gt;.&lt;genexpr&gt; at 0x7de49c47b540&gt;)">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -&gt; None:
+        """Actual Collector traffic remains pending while the Kafka broker is paused."""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        paused = False
+        audit_start = _now()
+        try:
+            await harness.cli_call(harness.cli_rel, "collector", "start", "WTG_SIM01", "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(started["data"]["generation_id"])
+            harness.generation_id = generation_id
+            baseline = await harness.sink.wait_kafka_messages(min_messages=10, timeout=90)
+            assert baseline
+            outage_at = datetime.now(UTC)
+            await asyncio.to_thread(harness.stack.pause, "kafka")
+            paused = True
+            await asyncio.sleep(10)
+            held = await harness.sink.stream_pending()
+            assert held["consumer_pending"] is not None and held["consumer_pending"] &gt; 0, held
+            detected_at = _now()
+            await harness.cli_call(harness.cli_rel, "collector", "stop", "WTG_SIM01", "--yes")
+            await asyncio.to_thread(harness.stack.unpause, "kafka")
+            paused = False
+            restored_at = _now()
+            deadline = asyncio.get_running_loop().time() + 90
+            while asyncio.get_running_loop().time() &lt; deadline:
+                state = await harness.sink.stream_pending()
+                if state["consumer_pending"] == 0:
+                    break
+                await asyncio.sleep(1)
+            else:
+                raise AssertionError(f"Reliable backlog did not drain: {state}")
+    
+            def is_recovered(record: Any) -&gt; bool:
+                item = json.loads(record.value)
+                return (
+                    item.get("collector_id") == harness.reliable_collector
+                    and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) &gt;= outage_at
+                )
+    
+            records = await harness.sink.wait_kafka_messages(
+                min_messages=len(baseline) + 1,
+                timeout=90,
+                match=is_recovered,
+            )
+            payloads = [json.loads(record.value) for record in records]
+&gt;           assert any(
+                item.get("collector_id") == harness.reliable_collector
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) &gt;= outage_at
+                for item in payloads
+            )
+E           assert False
+E            +  where False = any(&lt;generator object test_e2e_10_kafka_outage_holds_and_recovers.&lt;locals&gt;.&lt;genexpr&gt; at 0x7de49c47b540&gt;)
+
+tests/system/e2e/full_chain/test_e2e_recovery.py:215: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_nats_recovers_both_channels" time="11.381"><failure message="AssertionError: []&#10;assert 0 &gt;= 2&#10; +  where 0 = len(set())">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -&gt; None:
+        """Pause only this test's NATS and observe new data on both downstream channels."""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        paused = False
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(started["data"]["generation_id"])
+            harness.generation_id = generation_id
+            key = harness.redis_key("WTG_SIM01", "wind_speed")
+            before = await harness.sink.wait_redis_value(
+                key, timeout=90, match=lambda item: abs(float(item["value"]) - 10.0) &lt; 1e-3
+            )
+            baseline = await harness.sink.wait_kafka_messages(min_messages=10, timeout=90)
+            assert baseline
+            fault_at = _now()
+            await asyncio.to_thread(harness.stack.pause, "nats")
+            paused = True
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(harness.sink.stream_pending(), timeout=3)
+            detected_at = _now()
+            await asyncio.to_thread(harness.stack.unpause, "nats")
+            paused = False
+            restored_at = _now()
+            after = await harness.sink.wait_redis_value(
+                key,
+                timeout=90,
+                match=lambda item: item["sample_id"] != before["sample_id"]
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) &gt;= restored_at,
+            )
+            records = await harness.sink.wait_kafka_messages(
+                min_messages=20, timeout=90, offset_reset="latest"
+            )
+            payloads = [json.loads(record.value) for record in records]
+            recovered_kafka = [
+                item
+                for item in payloads
+                if item.get("collector_id") == harness.reliable_collector
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) &gt;= restored_at
+            ]
+&gt;           assert len({item["sample_id"] for item in recovered_kafka}) &gt;= 2, recovered_kafka
+E           AssertionError: []
+E           assert 0 &gt;= 2
+E            +  where 0 = len(set())
+
+tests/system/e2e/full_chain/test_e2e_recovery.py:311: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_invalid_reliable_batch_is_dlq_acked" time="0.011" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_gateway_restart_recovers_data" time="12.745"><failure message="AssertionError: [{'data_level': 'protocol', 'device_config_id': 'device_full-chain-e2e_v1.0.0', 'device_id': 'GRID_SIM01', 'points': {... [1181.3968505859375, 1], 'aerodynamic_power': [4096575.25, 1], 'aerodynamic_torque': [2294971.75, 1], ...}, ...}, ...]&#10;assert None is not None">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -&gt; None:
+        """Restart Gateway and prove a new post-fault value reaches all four outputs."""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        gateway_stopped = False
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
+            first = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(first["data"]["generation_id"])
+            harness.generation_id = generation_id
+            key = harness.redis_key("WTG_SIM01", "wind_speed")
+            before = await harness.sink.wait_redis_value(
+                key, timeout=90, match=lambda item: abs(float(item["value"]) - 10.0) &lt; 1e-3
+            )
+            fault_at = _now()
+            stopped = await harness.cli_call(harness.cli_rt, "service", "stop", "gateway", "--yes")
+            gateway_stopped = True
+            assert stopped["data"]["process"]["state"] == "STOPPED"
+            detected_at = _now()
+            await harness.cli_call(
+                harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
+            )
+            restarted = await harness.cli_call(harness.cli_rt, "service", "start", "gateway", "--yes")
+            gateway_stopped = False
+            assert restarted["data"]["business"]["health"] == "HEALTHY"
+            gateway_ready_at = _now()
+            await harness.poll(
+                harness.cli_rt,
+                "data-generator",
+                "status",
+                generation_id,
+                predicate=lambda data: data.get("generation", {}).get("actual_state") == "STOPPED",
+                timeout=90,
+            )
+            harness.generation_id = None
+            generation_id = None
+            second = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(second["data"]["generation_id"])
+            assert generation_id != first["data"]["generation_id"]
+            harness.generation_id = generation_id
+            restored_at = datetime.now(UTC)
+            updated = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "variables",
+                "update",
+                "--generation-id",
+                generation_id,
+                "--device-id",
+                "WTG_SIM01",
+                "--request-id",
+                str(uuid4()),
+                "--point-id",
+                "wind_speed_mean",
+                "--value",
+                "12",
+                "--yes",
+            )
+            assert updated["data"]["accepted"] is True
+            after = await harness.sink.wait_redis_value(
+                key,
+                timeout=90,
+                match=lambda item: item["sample_id"] != before["sample_id"]
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) &gt;= restored_at
+                and abs(float(item["value"]) - 12.0) &lt; 1e-3,
+            )
+            gateway = await harness.poll(
+                harness.cli_rt,
+                "gateway",
+                "read",
+                "gw-wtg_sim01",
+                SINK_TARGET_POINT,
+                predicate=lambda data: bool(data.get("values"))
+                and data["values"][0]["quality"] == "GOOD"
+                and abs(float(data["values"][0]["value"].get("double_value", 0)) - 12.0) &lt; 1e-3,
+                timeout=90,
+            )
+            modbus_value, modbus_quality = await wait_sink_modbus_float(
+                harness.sink_modbus_port, 12.0, timeout=90
+            )
+            assert modbus_quality == 0
+            records = await harness.sink.wait_kafka_messages(
+                min_messages=20, timeout=90, offset_reset="latest"
+            )
+            payloads = [json.loads(record.value) for record in records]
+            kafka = next(
+                (
+                    item
+                    for item in payloads
+                    if item.get("collector_id") == harness.reliable_collector
+                    and item.get("device_id") == "WTG_SIM01"
+                    and item.get("point_id") == "wind_speed"
+                    and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                    &gt;= restored_at
+                    and abs(float(item["value"]) - 12.0) &lt; 1e-3
+                ),
+                None,
+            )
+&gt;           assert kafka is not None, payloads
+E           AssertionError: [{'data_level': 'protocol', 'device_config_id': 'device_full-chain-e2e_v1.0.0', 'device_id': 'GRID_SIM01', 'points': {... [1181.3968505859375, 1], 'aerodynamic_power': [4096575.25, 1], 'aerodynamic_torque': [2294971.75, 1], ...}, ...}, ...]
+E           assert None is not None
+
+tests/system/e2e/full_chain/test_e2e_recovery.py:519: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_replay" name="test_e2e_05_csv_replay_recording[1]" time="0.541"><failure message="AssertionError: CLI collector start GW02 --yes rc=1&#10;stdout={&quot;schema_version&quot;: 1, &quot;command&quot;: &quot;collector start&quot;, &quot;status&quot;: &quot;FAILURE&quot;, &quot;target&quot;: null, &quot;data&quot;: null, &quot;error_code&quot;: &quot;NOT_FOUND&quot;, &quot;message&quot;: &quot;Task does not exist: GW02&quot;}&#10;&#10;stderr=&#10;logs=/tmp/pytest-of-luosh/pytest-375/full-chain0">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+speed = 1
+
+    @pytest.mark.parametrize("speed", [1, 2])
+    async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -&gt; None:
+        harness = full_chain
+        assert harness.sink is not None
+        restart_pids: tuple[int, int] | None = None
+        if speed == 2:
+            before = await harness.cli_call(harness.cli_rt, "service", "status", "data-generator")
+            old_pid = before["data"][0]["process"]["pid"]
+            restarted = await harness.cli_call(
+                harness.cli_rt, "service", "restart", "data-generator", "--yes"
+            )
+            new_pid = restarted["data"]["process"]["pid"]
+            assert isinstance(old_pid, int) and isinstance(new_pid, int) and old_pid != new_pid
+            assert restarted["data"]["business"]["health"] == "HEALTHY"
+            restart_pids = (old_pid, new_pid)
+        consumer = AIOKafkaConsumer(
+            harness.sink.kafka_topic,
+            bootstrap_servers=harness.stack.kafka,
+            auto_offset_reset="latest",
+            group_id=f"replay-{uuid4()}",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        generation_id: str | None = None
+        try:
+&gt;           await harness.cli_call(harness.cli_rel, "collector", "start", "GW02", "--yes")
+
+tests/system/e2e/full_chain/test_e2e_replay.py:42: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/full_chain/conftest.py:727: in cli_call
+    return await self.cli.cli(config, *args, timeout=timeout, check=check, token=token)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x7de49ce19750&gt;
+config = PosixPath('/tmp/pytest-of-luosh/pytest-375/full-chain0/cli-reliable.yaml')
+timeout = 45, check = True, token = 'strict-cli-admin-token'
+args = ('collector', 'start', 'GW02', '--yes')
+
+    async def cli(
+        self,
+        config: Path,
+        *args: str,
+        timeout: float = 45,
+        check: bool = True,
+        token: str | None = ADMIN_TOKEN,
+    ) -&gt; dict[str, Any]:
+        def invoke() -&gt; subprocess.CompletedProcess[str]:
+            return run_cli(config, *args, timeout=timeout, env=self.cli_env(token=token))
+    
+        result = await asyncio.to_thread(invoke)
+        with self.log.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "time": time.time(),
+                        "config": str(config),
+                        "args": args,
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        if check and result.returncode != 0:
+&gt;           raise AssertionError(
+                f"CLI {' '.join(args)} rc={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}\nlogs={self.root}"
+            )
+E           AssertionError: CLI collector start GW02 --yes rc=1
+E           stdout={"schema_version": 1, "command": "collector start", "status": "FAILURE", "target": null, "data": null, "error_code": "NOT_FOUND", "message": "Task does not exist: GW02"}
+E           
+E           stderr=
+E           logs=/tmp/pytest-of-luosh/pytest-375/full-chain0
+
+tests/cli/test_r1f3_strict_cli_e2e.py:201: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_replay" name="test_e2e_05_csv_replay_recording[2]" time="1.822"><failure message="AssertionError: CLI collector start GW02 --yes rc=1&#10;stdout={&quot;schema_version&quot;: 1, &quot;command&quot;: &quot;collector start&quot;, &quot;status&quot;: &quot;FAILURE&quot;, &quot;target&quot;: null, &quot;data&quot;: null, &quot;error_code&quot;: &quot;NOT_FOUND&quot;, &quot;message&quot;: &quot;Task does not exist: GW02&quot;}&#10;&#10;stderr=&#10;logs=/tmp/pytest-of-luosh/pytest-375/full-chain0">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+speed = 2
+
+    @pytest.mark.parametrize("speed", [1, 2])
+    async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -&gt; None:
+        harness = full_chain
+        assert harness.sink is not None
+        restart_pids: tuple[int, int] | None = None
+        if speed == 2:
+            before = await harness.cli_call(harness.cli_rt, "service", "status", "data-generator")
+            old_pid = before["data"][0]["process"]["pid"]
+            restarted = await harness.cli_call(
+                harness.cli_rt, "service", "restart", "data-generator", "--yes"
+            )
+            new_pid = restarted["data"]["process"]["pid"]
+            assert isinstance(old_pid, int) and isinstance(new_pid, int) and old_pid != new_pid
+            assert restarted["data"]["business"]["health"] == "HEALTHY"
+            restart_pids = (old_pid, new_pid)
+        consumer = AIOKafkaConsumer(
+            harness.sink.kafka_topic,
+            bootstrap_servers=harness.stack.kafka,
+            auto_offset_reset="latest",
+            group_id=f"replay-{uuid4()}",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        generation_id: str | None = None
+        try:
+&gt;           await harness.cli_call(harness.cli_rel, "collector", "start", "GW02", "--yes")
+
+tests/system/e2e/full_chain/test_e2e_replay.py:42: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/full_chain/conftest.py:727: in cli_call
+    return await self.cli.cli(config, *args, timeout=timeout, check=check, token=token)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x7de49ce19750&gt;
+config = PosixPath('/tmp/pytest-of-luosh/pytest-375/full-chain0/cli-reliable.yaml')
+timeout = 45, check = True, token = 'strict-cli-admin-token'
+args = ('collector', 'start', 'GW02', '--yes')
+
+    async def cli(
+        self,
+        config: Path,
+        *args: str,
+        timeout: float = 45,
+        check: bool = True,
+        token: str | None = ADMIN_TOKEN,
+    ) -&gt; dict[str, Any]:
+        def invoke() -&gt; subprocess.CompletedProcess[str]:
+            return run_cli(config, *args, timeout=timeout, env=self.cli_env(token=token))
+    
+        result = await asyncio.to_thread(invoke)
+        with self.log.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "time": time.time(),
+                        "config": str(config),
+                        "args": args,
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        if check and result.returncode != 0:
+&gt;           raise AssertionError(
+                f"CLI {' '.join(args)} rc={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}\nlogs={self.root}"
+            )
+E           AssertionError: CLI collector start GW02 --yes rc=1
+E           stdout={"schema_version": 1, "command": "collector start", "status": "FAILURE", "target": null, "data": null, "error_code": "NOT_FOUND", "message": "Task does not exist: GW02"}
+E           
+E           stderr=
+E           logs=/tmp/pytest-of-luosh/pytest-375/full-chain0
+
+tests/cli/test_r1f3_strict_cli_e2e.py:201: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_resources" name="test_r4e_resources_and_formal_stop_all_release_complete_trees" time="122.288"><failure message="RuntimeError: coroutine raised StopIteration">resource_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49b176dd0&gt;
+
+    async def test_r4e_resources_and_formal_stop_all_release_complete_trees(
+        resource_chain: FullChainHarness,
+    ) -&gt; None:
+        harness = resource_chain
+        main_pids: dict[str, int] = {}
+        for service in SERVICES:
+            data = await harness.poll(
+                harness.cli_rt,
+                "service",
+                "status",
+                service,
+                predicate=lambda value, service=service: bool(value)
+                and value[0]["process"]["running"] is True
+                and (
+                    value[0]["business"]["health"] == "HEALTHY"
+                    or service.startswith("collector_")
+                    and value[0]["business"]["health"] == "DEGRADED"
+                ),
+                timeout=75,
+            )
+            process = data[0]["process"]
+            pid = process["pid"]
+            assert isinstance(pid, int) and pid &gt; 1
+            assert process["state"] == "RUNNING"
+            main_pids[service] = pid
+        assert set(main_pids) == set(SERVICES)
+        assert len(set(main_pids.values())) == len(SERVICES)
+    
+        sink_workers = role_pids(main_pids["sink"])
+        assert set(sink_workers) == {"realtime", "reliable"}
+        assert len(set(sink_workers.values())) == 2
+        trees = capture_process_trees(main_pids)
+        sink_tree = trees["sink"]
+        assert set(sink_workers.values()) &lt;= set(sink_tree)
+        tracker_pids = sorted(
+            pid for pid, identity in sink_tree.items() if "resource_tracker" in identity.command
+        )
+        assert tracker_pids, "Sink spawn resource_tracker is absent from the captured tree"
+    
+        assert harness.sink is not None
+        generation_id: str | None = None
+        activity_started = datetime.now(UTC)
+    
+        def is_fresh_kafka(record: Any) -&gt; bool:
+            item = json.loads(record.value)
+            return (
+                item.get("collector_id") == harness.reliable_collector
+                and item.get("device_id") == "WTG_SIM01"
+                and item.get("point_id") == "wind_speed"
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                &gt;= activity_started
+            )
+    
+        try:
+            # 采样期间持续产生真实 RT 与 Reliable 流量，而非空闲进程快照。
+            for config in (harness.cli_rt, harness.cli_rel):
+                await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(started["data"]["generation_id"])
+            harness.generation_id = generation_id
+            redis_sample = await harness.sink.wait_redis_value(
+                harness.redis_key("WTG_SIM01", "wind_speed"),
+                timeout=90,
+                match=lambda item: datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                &gt;= activity_started,
+            )
+            kafka_records = await harness.sink.wait_kafka_messages(
+                min_messages=1, timeout=90, match=is_fresh_kafka
+            )
+&gt;           kafka_sample = next(
+                json.loads(record.value) for record in kafka_records if is_fresh_kafka(record)
+            )
+E           StopIteration
+
+tests/system/e2e/full_chain/test_e2e_resources.py:117: StopIteration
+
+The above exception was the direct cause of the following exception:
+
+self = &lt;Coroutine test_r4e_resources_and_formal_stop_all_release_complete_trees&gt;
+
+    def runtest(self) -&gt; None:
+        self.obj = wrap_in_sync(
+            # https://github.com/pytest-dev/pytest-asyncio/issues/596
+            self.obj,  # type: ignore[has-type]
+        )
+&gt;       super().runtest()
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py:457: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py:929: in inner
+    _loop.run_until_complete(task)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;_UnixSelectorEventLoop running=False closed=False debug=False&gt;
+future = &lt;Task finished name='Task-2351' coro=&lt;test_r4e_resources_and_formal_stop_all_release_complete_trees() done, defined at...ind-hub/tests/system/e2e/full_chain/test_e2e_resources.py:40&gt; exception=RuntimeError('coroutine raised StopIteration')&gt;
+
+    def run_until_complete(self, future):
+        """Run until the Future is done.
+    
+        If the argument is a coroutine, it is wrapped in a Task.
+    
+        WARNING: It would be disastrous to call run_until_complete()
+        with the same coroutine twice -- it would wrap it in two
+        different Tasks and that can't be good.
+    
+        Return the Future's result, or raise its exception.
+        """
+        self._check_closed()
+        self._check_running()
+    
+        new_task = not futures.isfuture(future)
+        future = tasks.ensure_future(future, loop=self)
+        if new_task:
+            # An exception is raised if the future didn't complete, so there
+            # is no need to log the "destroy pending task" message
+            future._log_destroy_pending = False
+    
+        future.add_done_callback(_run_until_complete_cb)
+        try:
+            self.run_forever()
+        except:
+            if new_task and future.done() and not future.cancelled():
+                # The coroutine raised a BaseException. Consume the exception
+                # to not log a warning, the caller doesn't have access to the
+                # local task.
+                future.exception()
+            raise
+        finally:
+            future.remove_done_callback(_run_until_complete_cb)
+        if not future.done():
+            raise RuntimeError('Event loop stopped before Future completed.')
+    
+&gt;       return future.result()
+               ^^^^^^^^^^^^^^^
+E       RuntimeError: coroutine raised StopIteration
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: RuntimeError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[missing]" time="0.685" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[malformed]" time="0.008" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[unregistered]" time="0.006" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_commander_identity_cannot_write_gateway_or_generator" time="1.342" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_stopped_g1_write_rejected_and_g2_has_no_replay" time="3.600" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_gateway_lease_expiry_renew_lost_and_update_precondition" time="1.210" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_commander_stop_unknown_restart_no_replay_and_new_request_independent" time="4.406" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_modbus_illegal_address_and_unset_scalar_reject_without_write" time="0.796" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_corrupt_g1_recording_fails_closed_and_g2_parses_independently" time="7.022" /><testcase classname="tests.system.e2e.full_chain.test_e2e_seeded" name="test_e2e_05_seeded_physical_input_is_reproducible" time="31.069" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_semantic_matrix_matches_live_cli_and_rpc_descriptors" time="0.013" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_cli_semantic_delta_has_exact_exit_and_error_contracts" time="19.629" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_diagnose_pipeline_correlates_real_collector_and_sink_samples" time="6.025" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_pipeline_diagnosis_is_strictly_device_scoped_on_real_chain" time="8.168" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_collector_cli_wrong_and_missing_token_cannot_start_task" time="1.330" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_common_service_semantics_on_all_six_deployments" time="2.617" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_generator_update_is_applied_and_idempotent" time="2.341" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_commander_token_simulation_applied" time="1.896" /><testcase classname="tests.system.e2e.full_chain.test_e2e_sink_outputs" name="test_e2e_07_four_sink_outputs" time="33.198"><failure message="AssertionError: [{'data_level': 'protocol', 'device_config_id': 'device_full-chain-e2e_v1.0.0', 'device_id': 'WTG_SIM01', 'points': {'...nt': [1123.25244140625, 1], 'aerodynamic_power': [2254189.5, 1], 'aerodynamic_torque': [1381492.0, 1], ...}, ...}, ...]&#10;assert []">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_e2e_07_four_sink_outputs(full_chain) -&gt; None:  # noqa: ANN001
+        """Read Gateway, Modbus, Redis and Kafka independently after one source batch."""
+        harness = full_chain
+        generation_id: str | None = None
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in SIM_DEVICES:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+    
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(started["data"]["generation_id"])
+            harness.generation_id = generation_id
+    
+            assert harness.sink is not None
+            expected = 10.0
+            redis_value = await harness.sink.wait_redis_value(
+                harness.redis_key("WTG_SIM01", "wind_speed"),
+                timeout=90,
+                match=lambda value: abs(float(value.get("value", 0.0)) - expected) &lt; 1e-3,
+            )
+            assert abs(float(redis_value["value"]) - expected) &lt; 1e-3
+            assert redis_value["quality"] == "good"
+    
+            # OUT-01: Sink GatewayOutput writes an isolated target variable.
+            gateway = await harness.poll(
+                harness.cli_rt,
+                "gateway",
+                "read",
+                "gw-wtg_sim01",
+                SINK_TARGET_POINT,
+                predicate=lambda data: bool(data.get("values"))
+                and data["values"][0]["quality"] == "GOOD",
+                timeout=90,
+            )
+            assert abs(float(gateway["values"][0]["value"]["double_value"]) - expected) &lt; 1e-3
+            assert gateway["values"][0]["quality"] == "GOOD"
+    
+            # OUT-02: independent Modbus client reads Sink's own output server.
+            modbus_value, modbus_quality = await wait_sink_modbus_float(
+                harness.sink_modbus_port, expected, timeout=90
+            )
+            assert modbus_quality == 0
+    
+            # OUT-04: independent Kafka consumer sees reliable Collector identity.
+            await harness.poll(
+                harness.cli_rel,
+                "collector",
+                "latest",
+                "WTG_SIM01",
+                "wind_speed",
+                predicate=lambda data: any(
+                    sample.get("point_id") == "wind_speed"
+                    and abs(float(sample["value"]["double_value"]) - expected) &lt; 1e-3
+                    for sample in data.get("samples", [])
+                ),
+                timeout=90,
+            )
+            records = await harness.sink.wait_kafka_messages(
+                min_messages=100, timeout=90, offset_reset="latest"
+            )
+            payloads = [json.loads(record.value.decode("utf-8")) for record in records]
+            matching = [
+                item
+                for item in payloads
+                if item.get("collector_id") == harness.reliable_collector
+                and item.get("device_id") == "WTG_SIM01"
+                and item.get("point_id") == "wind_speed"
+            ]
+&gt;           assert matching, payloads
+E           AssertionError: [{'data_level': 'protocol', 'device_config_id': 'device_full-chain-e2e_v1.0.0', 'device_id': 'WTG_SIM01', 'points': {'...nt': [1123.25244140625, 1], 'aerodynamic_power': [2254189.5, 1], 'aerodynamic_torque': [1381492.0, 1], ...}, ...}, ...]
+E           assert []
+
+tests/system/e2e/full_chain/test_e2e_sink_outputs.py:90: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_smoke" name="test_full_chain_physical_first_value" time="28.852" /><testcase classname="tests.system.e2e.full_chain.test_e2e_surface_matrix" name="test_e2e_08_executes_all_51_formal_rpcs" time="0.041" /><testcase classname="tests.system.e2e.full_chain.test_e2e_surface_matrix" name="test_e2e_08_executes_all_73_cli_leaves" time="27.783" /><testcase classname="tests.system.e2e.full_chain.test_e2e_wind_step" name="test_e2e_01_wind_step" time="27.497"><failure message="assert False&#10; +  where False = any(&lt;generator object test_e2e_01_wind_step.&lt;locals&gt;.&lt;genexpr&gt; at 0x7de49cd9d940&gt;)">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+
+    async def test_e2e_01_wind_step(full_chain: Any) -&gt; None:
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
+            started = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "wind-plant-physical",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = str(started["data"]["generation_id"])
+            harness.generation_id = generation_id
+            key = harness.redis_key("WTG_SIM01", "wind_speed")
+            before = await harness.sink.wait_redis_value(
+                key, timeout=90, match=lambda item: abs(float(item["value"]) - 10.0) &lt; 1e-3
+            )
+            request_id = str(uuid4())
+            updated = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "variables",
+                "update",
+                "--generation-id",
+                generation_id,
+                "--device-id",
+                "WTG_SIM01",
+                "--request-id",
+                request_id,
+                "--point-id",
+                "wind_speed_mean",
+                "--value",
+                "12.0",
+                "--yes",
+            )
+            assert updated["data"]["accepted"] is True
+            assert int(updated["data"]["effective_step"]) &gt; 0
+            after = await harness.sink.wait_redis_value(
+                key,
+                timeout=90,
+                match=lambda item: abs(float(item["value"]) - 12.0) &lt; 1e-3
+                and item["sample_id"] != before["sample_id"],
+            )
+            gateway = await harness.poll(
+                harness.cli_rt,
+                "gateway",
+                "read",
+                "gw-wtg_sim01",
+                SINK_TARGET_POINT,
+                predicate=lambda data: bool(data.get("values"))
+                and abs(float(data["values"][0]["value"].get("double_value", 0)) - 12.0) &lt; 1e-3
+                and data["values"][0]["quality"] == "GOOD",
+                timeout=90,
+            )
+            modbus_value, quality = await wait_sink_modbus_float(
+                harness.sink_modbus_port, 12.0, timeout=90
+            )
+            assert quality == 0
+            await harness.poll(
+                harness.cli_rel,
+                "collector",
+                "latest",
+                "WTG_SIM01",
+                "wind_speed",
+                predicate=lambda data: any(
+                    sample.get("point_id") == "wind_speed"
+                    and abs(float(sample["value"].get("double_value", 0)) - 12.0) &lt; 1e-3
+                    for sample in data.get("samples", [])
+                ),
+                timeout=90,
+            )
+            records = await harness.sink.wait_kafka_messages(
+                min_messages=100, timeout=90, offset_reset="latest"
+            )
+            payloads = [json.loads(record.value) for record in records]
+&gt;           assert any(
+                item.get("collector_id") == harness.reliable_collector
+                and item.get("device_id") == "WTG_SIM01"
+                and item.get("point_id") == "wind_speed"
+                and abs(float(item["value"]) - 12.0) &lt; 1e-3
+                for item in payloads
+            )
+E           assert False
+E            +  where False = any(&lt;generator object test_e2e_01_wind_step.&lt;locals&gt;.&lt;genexpr&gt; at 0x7de49cd9d940&gt;)
+
+tests/system/e2e/full_chain/test_e2e_wind_step.py:96: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_i08_config_governance" name="test_i08_collector_local_publication_is_disabled" time="1.885" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i01_recording_gateway_identity_window_and_dg_lease_release" time="2.051" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i02_stopped_read_rejected_without_publish_and_running_cadence" time="6.466" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i03_dual_observers_metrics_sequences_and_sink_outputs" time="6.663"><failure message="AssertionError: assert 124.0 &gt; 124.0&#10; +  where 124.0 = &lt;built-in method get of dict object at 0x7de43e9ed980&gt;('collector.publisher.pubacked', 0)&#10; +    where &lt;built-in method get of dict object at 0x7de43e9ed980&gt; = {'collector.device.WTG_SIM01.connections': 1.0, 'collector.device.WTG_SIM01.points.bad': 0.0, 'collector.device.WTG_SIM01.points.collected': 4092.0, 'collector.devices.faulted': 0.0, ...}.get">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x7de49cc00490&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7de4507650d0&gt;
+
+    @pytest.mark.timeout(240)
+    async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
+        full_chain: FullChainHarness, monkeypatch: pytest.MonkeyPatch
+    ) -&gt; None:
+        harness = full_chain
+        assert harness.sink is not None
+        monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
+        rt_runtime = Runtime(harness.cli_rt, "json")
+        hist_runtime = Runtime(harness.cli_rel, "json")
+        observer = DualBatchObserver(harness, "WTG_SIM01")
+        consumer = await kafka_consumer(harness, "i03")
+        try:
+            await observer.start()
+            before_rt = await _metric_values(rt_runtime, "collector")
+            before_hist = await _metric_values(hist_runtime, "collector")
+            generation_id = await _start_generation(harness)
+            await harness.cli_call(harness.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
+            await harness.cli_call(harness.cli_rel, "collector", "start", "WTG_SIM01", "--yes")
+            rt_batches, hist_batches = await asyncio.gather(
+                observer.wait("realtime", 2), observer.wait("reliable", 2)
+            )
+            after_rt = await _metric_values(rt_runtime, "collector")
+            after_hist = await _metric_values(hist_runtime, "collector")
+            assert after_rt["collector.publisher.client_submitted"] &gt; before_rt.get(
+                "collector.publisher.client_submitted", 0
+            )
+&gt;           assert after_hist["collector.publisher.pubacked"] &gt; before_hist.get(
+                "collector.publisher.pubacked", 0
+            )
+E           AssertionError: assert 124.0 &gt; 124.0
+E            +  where 124.0 = &lt;built-in method get of dict object at 0x7de43e9ed980&gt;('collector.publisher.pubacked', 0)
+E            +    where &lt;built-in method get of dict object at 0x7de43e9ed980&gt; = {'collector.device.WTG_SIM01.connections': 1.0, 'collector.device.WTG_SIM01.points.bad': 0.0, 'collector.device.WTG_SIM01.points.collected': 4092.0, 'collector.devices.faulted': 0.0, ...}.get
+
+tests/system/e2e/full_chain/test_integration_segments.py:347: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i04_fixed_v2_batches_reach_four_real_outputs" time="3.358" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i05_real_modbus_control_audit_replay_auth_and_unknown" time="5.569" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i07_target_sink_mapping_release_and_lease_fencing" time="20.623" /></testsuite></testsuites>

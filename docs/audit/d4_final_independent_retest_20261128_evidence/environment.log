@@ -1,0 +1,8 @@
+Python 3.11.16
+Docker 29.2.1
+aiokafka 0.14.0
+grpc 1.84.0
+redis:7-alpine
+nats:2.10-alpine
+tdengine/tdengine:3.3.6.13
+apache/kafka:3.9.1

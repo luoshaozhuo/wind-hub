@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="56.529" timestamp="2026-11-28T13:59:10.590688+08:00" hostname="boss"><testcase classname="tests.system.e2e.full_chain.test_e2e_pv_bess_golden" name="test_pv_bess_four_output_golden" time="56.513" /></testsuite></testsuites>

@@ -1,0 +1,57 @@
+.................................................................F...... [ 43%]
+...................F........F........................................... [ 86%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+_____________ test_uc03_s02_overdue_poll_increments_skipped_slots ______________
+tests/collector/system/test_collector_acquisition_system.py:157: in test_uc03_s02_overdue_poll_increments_skipped_slots
+    assert await wait_actual(device_stub, MODBUS, {"RUNNING"}, timeout=30) == "RUNNING"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/collector/system/helpers.py:109: in wait_actual
+    raise AssertionError(f"{device_id} never reached {expected}; last={last}")
+E   AssertionError: modbus-1 never reached {'RUNNING'}; last=RECOVERING
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+__________ test_uc05_s03_expired_deadline_marks_later_stages_not_run ___________
+tests/collector/system/test_collector_diagnose_system.py:132: in test_uc05_s03_expired_deadline_marks_later_stages_not_run
+    assert deadline.stages[1].status == "NOT_RUN"
+E   AssertionError: assert 'FAIL' == 'NOT_RUN'
+E     
+E     - NOT_RUN
+E     + FAIL
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+______________ test_uc08_s03_unsettled_io_shutdown_exits_nonzero _______________
+tests/collector/system/test_collector_lifecycle_system.py:138: in test_uc08_s03_unsettled_io_shutdown_exits_nonzero
+    read = await device_stub.ReadPoints(
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/grpc/aio/_call.py:333: in __await__
+    raise _create_rpc_error(
+E   grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+E   	status = StatusCode.FAILED_PRECONDITION
+E   	details = "device I/O is still unsettled"
+E   	debug_error_string = "FAILED_PRECONDITION:device I/O is still unsettled"
+E   >
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+=========================== short test summary info ============================
+FAILED tests/collector/system/test_collector_acquisition_system.py::test_uc03_s02_overdue_poll_increments_skipped_slots
+FAILED tests/collector/system/test_collector_diagnose_system.py::test_uc05_s03_expired_deadline_marks_later_stages_not_run
+FAILED tests/collector/system/test_collector_lifecycle_system.py::test_uc08_s03_unsettled_io_shutdown_exits_nonzero
+3 failed, 163 passed, 2 deselected in 174.26s (0:02:54)

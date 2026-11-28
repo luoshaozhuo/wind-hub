@@ -1,0 +1,361 @@
+EF....F.                                                                 [100%]
+==================================== ERRORS ====================================
+_____ ERROR at setup of test_business_mapping_reaches_storage_and_tdengine _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f339c763950>
+request = <SubRequest 'business_started' for <Function test_business_mapping_reaches_storage_and_tdengine>>
+
+    @pytest.fixture
+    def business_started(
+        monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+    ) -> Iterator[Any]:
+        monkeypatch.setenv("EIGHT_SERVICE_SINK_DATA_LEVEL", "business")
+>       yield request.getfixturevalue("started")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_business.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:549: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:640: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1128: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1196: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:930: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+tests/system/e2e/eight_service/conftest.py:408: in started
+    harness.wait_healthy(name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-391/test_business_mapping_reaches_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'sink'
+
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+            business = (items[0].get("business") if items else {}) or {}
+            if business.get("health") == "HEALTHY":
+                return last
+            time.sleep(0.5)
+>       raise AssertionError(
+            f"{name} did not become HEALTHY: {last}; {_service_load_has_problem(self, name, name)}"
+        )
+E       AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '<AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n>'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; run_code
+E         File "/home/luosh/wind-hub/src/sink_service/main.py", line 209, in <module>
+E           main()
+E         File "/home/luosh/wind-hub/src/sink_service/main.py", line 205, in main
+E           asyncio.run(run_sink_service(args.config_root, args.service_file))
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E           return runner.run(main)
+E                  ^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E           return self._loop.run_until_complete(task)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E           return future.result()
+E                  ^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/main.py", line 52, in run_sink_service
+E           snapshot = read_snapshot(config_root, config_root / service_file)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 143, in read_snapshot
+E           return validate_snapshot(tuple(files))
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 90, in validate_snapshot
+E           return validate_semantics(files, docs)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/application/config.py", line 537, in validate_snapshot
+E           _validate_delivery(delivery_id, definition, docs, sinks, service, template_root)
+E         File "/home/luosh/wind-hub/src/sink_service/application/config.py", line 426, in _validate_delivery
+E           endpoint = expect_nonempty_str(
+E                      ^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/sink_service/domain/config.py", line 90, in expect_nonempty_str
+E           raise ConfigurationError(f"{location}: expected non-empty string")
+E       sink_service.domain.config.ConfigurationError: config_sync.repository_endpoint: expected non-empty string
+
+tests/system/e2e/eight_service/conftest.py:269: AssertionError
+=================================== FAILURES ===================================
+______________ test_eight_service_provenance_and_restart_readback ______________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-391/test_eight_service_provenance_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_eight_service_provenance_and_restart_readback(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+        assert all(harness.status(name)["status"] == "SUCCESS" for name in SERVICES)
+    
+        available = harness.cli("sink", "deliveries")
+        assert available["status"] == "SUCCESS", available
+        delivery_ids = {
+            item.get("delivery_id") or item.get("id")
+            for item in (available.get("data") or {}).get("deliveries", [])
+        }
+        assert set(DELIVERIES) <= delivery_ids, delivery_ids
+        for delivery_id in DELIVERIES:
+            result = harness.cli("sink", "start", delivery_id, "--yes", timeout=90)
+            assert result["status"] == "SUCCESS", (delivery_id, result)
+    
+        started_at = datetime.now(UTC)
+        deadline_at = started_at + timedelta(minutes=3)
+        start = (started_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = deadline_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+        async def _exercise() -> list[dict[str, Any]]:
+            # Subscribe before the generator starts; latest offsets exclude stale
+            # records from other test runs and avoid an arrival race.
+            consumer = AIOKafkaConsumer(
+                TOPIC,
+                bootstrap_servers=harness.stack.kafka,
+                group_id=None,
+                auto_offset_reset="latest",
+                enable_auto_commit=False,
+            )
+            await consumer.start()
+            try:
+                # Wait for a concrete latest-offset assignment and drain all
+                # pre-existing records before starting the source.
+                assignment_deadline = asyncio.get_running_loop().time() + 15
+                while not consumer.assignment():
+                    await consumer.getmany(timeout_ms=250)
+                    if asyncio.get_running_loop().time() >= assignment_deadline:
+                        raise AssertionError("Kafka consumer never received partition assignment")
+                drain_deadline = asyncio.get_running_loop().time() + 2.0
+                while asyncio.get_running_loop().time() < drain_deadline:
+                    backlog = await consumer.getmany(timeout_ms=250, max_records=5000)
+                    if not backlog:
+                        break
+                created = harness.cli(
+                    "data-generator",
+                    "start",
+                    "e2e-plant-physical",
+                    "--yes",
+                    timeout=90,
+                )
+                assert created["status"] == "SUCCESS", created
+                deadline = asyncio.get_running_loop().time() + 120
+                # Collector may sample the Gateway's initial zero-valued store
+                # before the first physical step is delivered. Select only samples
+                # at or after the independent source watermark.
+                truth_start: datetime | None = None
+                selected: dict[int, dict[str, Any]] = {}
+                while asyncio.get_running_loop().time() < deadline:
+                    if truth_start is None:
+                        points = _truth_points(harness)
+                        if points:
+                            truth_start = min(
+                                datetime.fromisoformat(point["source_time"]) for point in points
+                            )
+                    messages = await consumer.getmany(timeout_ms=1500, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("schema_version") != 3
+                                or row.get("data_level") != "protocol"
+                                or row.get("wind_farm_id") != "e2e-final"
+                                or row.get("device_id") != DEVICE
+                            ):
+                                continue
+                            sampled_at = datetime.fromisoformat(
+                                row["sample_time"].replace("Z", "+00:00")
+                            )
+                            points = row.get("points")
+                            if (
+                                truth_start is not None
+                                and sampled_at >= truth_start
+                                and isinstance(points, dict)
+                                and POINT in points
+                            ):
+                                _wire_point(row)
+                                selected[_time_us(row["sample_time"])] = row
+                                if len(selected) >= 5:
+                                    return list(selected.values())
+                raise AssertionError(
+                    f"expected five distinct live Kafka device rows, got {len(selected)}"
+                )
+            finally:
+                await consumer.stop()
+    
+        wire_records = asyncio.run(_exercise())
+        assert len(wire_records) == 5
+        source_times = {_time_us(row["sample_time"]) for row in wire_records}
+        assert len(source_times) == 5
+        assert len({row["device_config_id"] for row in wire_records}) == 1
+        for wire in wire_records:
+            _value, quality = _wire_point(wire)
+            assert quality == 1
+    
+        truth_deadline = time.monotonic() + 30
+        while not all(
+            _source_truth_matches(harness, row["sample_time"], _wire_point(row)[0])
+            for row in wire_records
+        ):
+            if time.monotonic() >= truth_deadline:
+                raise AssertionError(
+                    "Kafka data not time/value-aligned with independent Generator truth: "
+                    f"{[(row['sample_time'], row['points'][POINT]) for row in wire_records]}"
+                )
+            time.sleep(0.5)
+    
+        # Exactly the five observed timestamps must exist with matching values and
+        # quality. Each timestamp addresses one complete device row.
+        expected = {_time_us(wire["sample_time"]): _wire_point(wire) for wire in wire_records}
+        deadline = time.monotonic() + 120
+        last_groups: list[dict[str, Any]] = []
+        persisted: dict[int, tuple[float, int]] = {}
+        while time.monotonic() < deadline:
+            try:
+                last_groups = _query(harness, start, end)
+                stored = _stored_points(last_groups)
+                persisted = {timestamp: stored[timestamp] for timestamp in source_times & stored.keys()}
+                if len(persisted) == len(source_times):
+                    break
+            except (AssertionError, KeyError, ValueError):
+                persisted = {}
+            time.sleep(1)
+>       assert set(persisted) == source_times, {
+            "missing_count": len(source_times - set(persisted)),
+            "missing_times": sorted(source_times - set(persisted)),
+            "last_groups": last_groups,
+        }
+E       AssertionError: {'last_groups': [], 'missing_count': 5, 'missing_times': [1795838175908579, 1795838176008186, 1795838176108133, 1795838176208414, 1795838176309095]}
+E       assert set() == {179583817590...5838176309095}
+E         
+E         Extra items in the right set:
+E         1795838175908579
+E         1795838176108133
+E         1795838176309095
+E         1795838176008186
+E         1795838176208414
+E         Use -v to get more diff
+
+tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py:297: AssertionError
+____________ test_eight_service_chain_is_cli_managed_and_persisted _____________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-391/test_eight_service_chain_is_cl0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_eight_service_chain_is_cli_managed_and_persisted(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+    
+        print("STEP1 status")
+        # 1) Every configured process is observable through the formal CLI.
+        for name in SERVICES + ("configuration",):
+            status = harness.status(name)
+            assert status["status"] == "SUCCESS", (name, status)
+    
+        print("STEP2 deliveries")
+        # 2) Business operations are issued through CLI: deliveries then generation.
+        listed = harness.cli("sink", "deliveries")
+        assert listed["status"] == "SUCCESS", listed
+        available = (listed.get("data") or {}).get("deliveries") or []
+        available_ids = {item.get("delivery_id") or item.get("id") for item in available}
+        assert set(DELIVERIES) <= available_ids, f"missing four-output Delivery: {available_ids}"
+        for delivery in DELIVERIES:
+            deadline = time.monotonic() + 45
+            last: dict[str, object] = {}
+            while time.monotonic() < deadline:
+                last = harness.cli("sink", "start", delivery, "--yes", check=False, timeout=90)
+                if last["status"] == "SUCCESS":
+                    break
+                time.sleep(1.0)
+            assert last.get("status") == "SUCCESS", (delivery, last)
+    
+        harvest = harness.cli("data-generator", "start", "e2e-plant-physical", "--yes", timeout=90)
+        assert harvest["status"] == "SUCCESS", harvest
+    
+        print("STEP3 samples")
+        # 3) Wait for PROTOCOL samples to reach Storage and TDengine.
+        window_end = datetime.now(UTC) + timedelta(seconds=5)
+        window_start = window_end - timedelta(minutes=10)
+        proto_args = (
+            "storage",
+            "samples",
+            "e2e-final",
+            (window_start - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "--data-level",
+            "protocol",
+            "--device-id",
+            "WTG_SIM01",
+            "--page-size",
+            "200",
+        )
+        deadline = time.monotonic() + 90
+        sample_count = 0
+        last: dict[str, object] = {}
+        groups: list[dict[str, object]] = []
+        while time.monotonic() < deadline:
+            try:
+                groups = _query_all_groups(harness, *proto_args)
+                sample_count = sum(len(group.get("rows") or []) for group in groups)
+            except AssertionError as error:
+                last = {"query_error": str(error)}
+            if sample_count:
+                break
+            time.sleep(1.0)
+        if not sample_count:
+            diagnostics = {
+                name: harness.status(name)
+                for name in (
+                    "data-generator",
+                    "collector-realtime",
+                    "collector-reliable",
+                    "sink",
+                    "storage",
+                )
+            }
+            diagnostics["deliveries"] = harness.cli("sink", "deliveries", check=False)
+            diagnostics["sink_metrics"] = harness.cli("sink", "metrics", check=False)
+            diagnostics["storage"] = last
+>           raise AssertionError(f"Storage returned no PROTOCOL samples: {diagnostics}")
+E           AssertionError: Storage returned no PROTOCOL samples: {'data-generator': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'data-generator', 'process': {'manager': 'process', 'target': 'data-generator', 'pid': 2661144, 'start_tick': '21848199', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'gateway:gw-bess-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-grid-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-ppc-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-pv-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-wtg-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}], 'observed_at': '2026-11-28T04:02:23.880271Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'collector-realtime': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'collector-realtime', 'process': {'manager': 'process', 'target': 'collector-realtime', 'pid': 2661342, 'start_tick': '21848582', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'acquisition', 'health': 'HEALTHY', 'detail': ''}, {'name': 'nats', 'health': 'HEALTHY', 'detail': ''}], 'observed_at': '2026-11-28T04:02:24.159753Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'collector-reliable': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'collector-reliable', 'process': {'manager': 'process', 'target': 'collector-reliable', 'pid': 2661392, 'start_tick': '21848756', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'acquisition', 'health': 'HEALTHY', 'detail': ''}, {'name': 'nats', 'health': 'HEALTHY', 'detail': ''}], 'observed_at': '2026-11-28T04:02:24.427485Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'sink': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': 2661189, 'start_tick': '21848286', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'configuration', 'health': 'RUNNING', 'detail': ''}, {'name': 'worker.realtime', 'health': 'RUNNING', 'detail': ''}, {'name': 'worker.reliable', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_gateway_power', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_kafka_protocol', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_modbus_power', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_redis_power', 'health': 'RUNNING', 'detail': ''}], 'observed_at': '2026-11-28T04:02:24.338083Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'storage': {'query_error': '{\'exit_code\': 2, \'stderr\': "Usage: python -m cli.main storage samples [OPTIONS]\n  Try \'python -m cli.main storage sampl...                                │\n  ╰──────────────────────────────────────────────────────────────────────────────╯\n  "}\nassert None == \'SUCCESS\'\n +  where None = <built-in method get of dict object at 0x7f339c6d8900>(\'status\')\n +    where <built-in method get of dict object at 0x7f339c6d8900> = {\'exit_code\': 2, \'stderr\': "Usage: python -m cli.main storage samples [OPTIONS]\\nTry \'python -m cli.main storage sampl...                                │\\n╰──────────────────────────────────────────────────────────────────────────────╯\\n"}.get'}, 'deliveries': {'schema_version': 1, 'command': 'sink ListDeliveries', 'status': 'SUCCESS', 'target': None, 'data': {'deliveries': [{'delivery_id': 'e2e_gateway_power', 'channel': 'realtime', 'sink_id': 'e2e_gateway', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': 'f0c8488c3e2205a4b010bb4b10e342ad3b9a988869e6a79dcdad67f1dc50d4f8', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_gateway"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'target_mappings', 'value': {'string_value': '[{"source_device_id": "WTG_SIM01", "source_point_id": "active_power", "variable_id": "active_power"}]'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_kafka_protocol', 'channel': 'reliable', 'sink_id': 'e2e_kafka', 'process_role': 'reliable', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': 'f0c8488c3e2205a4b010bb4b10e342ad3b9a988869e6a79dcdad67f1dc50d4f8', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_kafka"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-reliable", "devices": ["WTG_SIM01"], "points": [], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"reliable_history"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_modbus_power', 'channel': 'realtime', 'sink_id': 'e2e_modbus', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': 'f0c8488c3e2205a4b010bb4b10e342ad3b9a988869e6a79dcdad67f1dc50d4f8', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_modbus"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_redis_power', 'channel': 'realtime', 'sink_id': 'e2e_redis', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': 'f0c8488c3e2205a4b010bb4b10e342ad3b9a988869e6a79dcdad67f1dc50d4f8', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_redis"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}], 'next_page_token': ''}, 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'sink_metrics': {'schema_version': 1, 'command': 'sink GetMetrics', 'status': 'SUCCESS', 'target': None, 'data': {'metrics': [{'name': 'acknowledged_batches_total', 'value': 996.0, 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'backlog_messages', 'unit': 'messages', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'dead_letter_invalid_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'dead_letter_total', 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'delivered_rate_per_second', 'value': 38.61666666666667, 'unit': 'samples/s', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'delivered_total', 'value': 3787.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'dropped_total', 'value': 18.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'failed_total', 'unit': 'attempts', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'filtered_ack_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'filtered_ack_values_total', 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'input_batches_total', 'value': 5685.0, 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'input_values_total', 'value': 128483.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'io_inflight', 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'kafka_confirm_seconds_total', 'value': 1.0970781870128121, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'kafka_lock_seconds_total', 'value': 0.0011186412011738867, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'kafka_metadata_seconds_total', 'value': 1.4815013855695724e-05, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'kafka_submit_seconds_total', 'value': 0.03910121516673826, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'kafka_timed_writes_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'metrics_covered_ms', 'value': 60000.0, 'unit': 'ms', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'metrics_snapshot_ready', 'value': 1.0, 'unit': 'bool', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'metrics_snapshot_stale', 'unit': 'bool', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'quota_global_seconds_total', 'value': 0.018636890570633113, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'quota_native_seconds_total', 'value': 1.2135085664340295, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'quota_physical_seconds_total', 'value': 0.010736701777204871, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'quota_timed_writes_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'realtime_event_loop_lag_ms_p99', 'value': 2.0168619812466204, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'received_total', 'value': 34680.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'rejected_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'reliable_encode_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_encode_seconds_total', 'value': 0.06694550815154798, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_event_loop_lag_ms_p99', 'value': 2.06966299447231, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_source_ack_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_source_ack_seconds_total', 'value': 0.3702353805711027, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_source_fetch_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_source_fetch_seconds_total', 'value': 92.18988616354181, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_write_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'reliable_write_seconds_total', 'value': 1.2968794649059419, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'retry_total', 'unit': 'attempts', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z', 'value': 0.0}, {'name': 'routed_values_total', 'value': 2805.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'write_latency_ms_max_delivery_p99', 'value': 1.7867723932668305, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'write_latency_ms_p99', 'value': 1.5480569802562356, 'unit': 'ms', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'write_success_ratio', 'value': 1.0, 'unit': 'ratio', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}, {'name': 'write_success_total', 'value': 3787.0, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-28T04:02:25.339297Z'}]}, 'error_code': None, 'exit_code': 0, 'stderr': ''}}
+
+tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py:203: AssertionError
+----------------------------- Captured stdout call -----------------------------
+STEP1 status
+STEP2 deliveries
+STEP3 samples
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/system/e2e/eight_service/test_e2e_eight_service_business.py::test_business_mapping_reaches_storage_and_tdengine
+FAILED tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py::test_eight_service_provenance_and_restart_readback
+FAILED tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py::test_eight_service_chain_is_cli_managed_and_persisted
+2 failed, 5 passed, 1 warning, 1 error in 526.65s (0:08:46)

@@ -1,0 +1,824 @@
+FFFFFF.F....F....FFF..........F...F.FF                                   [100%]
+=================================== FAILURES ===================================
+_ TestConcurrentReliableDelivery.test_r7_01_four_devices_exact_subjects_ordering_and_parallelism _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc31beae50>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_01_four_devices_exact_0/sink-root-875934a039...93', 'outsider': 'b2cf537edd864ca8ecfcd6a31f74263b48c36a12a7c25ecf70f52526bfcc9906'}, staleness_ms=60000, process=None)
+
+    async def test_r7_01_four_devices_exact_subjects_ordering_and_parallelism(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        _write_concurrent_root(sink_harness, devices=DEVICES)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        deployment = f"qa-{sink_harness.token}"
+        expected_names = {_durable_name(deployment, _delivery_id(i)) for i in range(4)}
+        try:
+            await asyncio.gather(
+                *(_wait_state(sink_harness, _delivery_id(i), "RUNNING") for i in range(4))
+            )
+            infos = await _consumer_infos(sink_harness)
+            assert set(infos) == expected_names
+            for i, device in enumerate(DEVICES):
+                expected_subject = f"wh.hist.batch.{WIND_FARM_ID}.{COLLECTOR_ID}.{device}"
+                name = _durable_name(deployment, _delivery_id(i))
+                assert infos[name].config.filter_subject == expected_subject
+    
+            # 一次性压入 5 轮负载，在排空过程中捕捉 ≥2 Durable 同时在途的并行瞬间。
+            total = await _publish_per_device(sink_harness, batches=5)
+            parallel_seen = False
+            deadline = asyncio.get_running_loop().time() + 45
+            while asyncio.get_running_loop().time() < deadline:
+                current = await _consumer_infos(sink_harness)
+                inflight = sum(1 for name in expected_names if current[name].num_ack_pending > 0)
+                if inflight >= 2:
+                    parallel_seen = True
+                    break
+                pending = sum(
+                    current[name].num_pending + current[name].num_ack_pending
+                    for name in expected_names
+                )
+                if pending == 0:
+                    break
+                await asyncio.sleep(0.05)
+            assert parallel_seen, "从未观察到两个 Durable 同时在途"
+            await _wait_all_drained(sink_harness, expected_names)
+            records = await _drain_kafka(sink_harness, min_messages=total)
+>           assert len(records) == total
+E           assert 20 == 1000
+E            +  where 20 = len([ConsumerRecord(topic='wh-history-qa-875934a03992', partition=0, offset=0, timestamp=1795840395579, timestamp_type=0, ..."p048":[49.0,1],"p049":[50.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=976, headers=()), ...])
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:322: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-r7-19b690ac79.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-r7-19b690ac79.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-r7-19b690ac79.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-r7-19b690ac79.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-r7-19b690ac79.
+_ TestConcurrentReliableDelivery.test_r7_02_kafka_pause_no_early_ack_then_drain _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc2e72d890>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_02_kafka_pause_no_earl0/sink-root-07fca72eb0...03', 'outsider': 'bbe3d47ef0c73092f7d6b56834e7584fcfa8be10ca2514fd0b2b6b5225de9593'}, staleness_ms=60000, process=None)
+
+    async def test_r7_02_kafka_pause_no_early_ack_then_drain(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        _write_concurrent_root(sink_harness, devices=DEVICES, ack_wait_seconds=30)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        deployment = f"qa-{sink_harness.token}"
+        names = {_durable_name(deployment, _delivery_id(i)) for i in range(4)}
+        try:
+            await asyncio.gather(
+                *(_wait_state(sink_harness, _delivery_id(i), "RUNNING") for i in range(4))
+            )
+            await _publish_per_device(sink_harness, batches=2)
+            await _wait_all_drained(sink_harness, names)
+            # pause 期间无法新建 consumer（broker 不可 bootstrap），必须在
+            # pause 前建立长连接并全程复用，以独立 group 从 earliest 观测。
+            from aiokafka import AIOKafkaConsumer
+            from aiokafka.errors import KafkaError
+    
+            watcher = AIOKafkaConsumer(
+                sink_harness.kafka_topic,
+                bootstrap_servers=sink_harness.stack.kafka,
+                auto_offset_reset="earliest",
+                group_id=f"qa-r702-{uuid.uuid4().hex[:10]}",
+                enable_auto_commit=False,
+            )
+            await watcher.start()
+            try:
+                seen: list[Any] = []
+                watch_deadline = asyncio.get_running_loop().time() + 60
+                while (
+                    asyncio.get_running_loop().time() < watch_deadline
+                    and len(seen) < 4 * 2 * POINTS_PER_BATCH
+                ):
+                    result = await watcher.getmany(timeout_ms=2000, max_records=1000)
+                    for messages in result.values():
+                        seen.extend(messages)
+                before = len(seen)
+>               assert before == 4 * 2 * POINTS_PER_BATCH
+E               assert 8 == ((4 * 2) * 50)
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:381: AssertionError
+_ TestConcurrentReliableDelivery.test_r7_03_poison_batch_on_one_device_isolated _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc2e5ed8d0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_03_poison_batch_on_one0/sink-root-f96bff6289...9d', 'outsider': '7fa2c402cd25f88b2f5e9a6f204081d906b880447cb9f4d7b1da38cb2ae50980'}, staleness_ms=60000, process=None)
+
+    async def test_r7_03_poison_batch_on_one_device_isolated(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        _write_concurrent_root(sink_harness, devices=DEVICES)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        deployment = f"qa-{sink_harness.token}"
+        names = {_durable_name(deployment, _delivery_id(i)) for i in range(4)}
+        try:
+            await asyncio.gather(
+                *(_wait_state(sink_harness, _delivery_id(i), "RUNNING") for i in range(4))
+            )
+            await _publish_per_device(sink_harness, batches=1)
+            # 向 WT004 注入畸形批：该设备走 DLQ+ACK，其余设备不受影响。
+            await sink_harness.publish_raw_reliable(b"{not-json", device_id="WT004")
+            await _publish_per_device(sink_harness, batches=2, seq_offset=80)
+            await _wait_all_drained(sink_harness, names)
+            assert await sink_harness.dlq_count() >= 1
+            good_total = 4 * 3 * POINTS_PER_BATCH
+            records = await _drain_kafka(sink_harness, min_messages=good_total)
+>           assert len(records) == good_total
+E           assert 12 == 600
+E            +  where 12 = len([ConsumerRecord(topic='wh-history-qa-f96bff62896f', partition=0, offset=0, timestamp=1795840543333, timestamp_type=0, ..."p048":[48.0,1],"p049":[49.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=975, headers=()), ...])
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:436: AssertionError
+_ TestConcurrentReliableDelivery.test_r7_04_stop_isolation_and_idempotent_start_stop _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc2e5ee350>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_04_stop_isolation_and_0/sink-root-3e026faad3...d5', 'outsider': 'e5a4136d0d23b4f1db39dc6ff4ad1de18a1f73a59465ef9b1d6b4b651c4f8944'}, staleness_ms=60000, process=None)
+
+    async def test_r7_04_stop_isolation_and_idempotent_start_stop(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        _write_concurrent_root(sink_harness, devices=DEVICES)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        deployment = f"qa-{sink_harness.token}"
+        names = {_durable_name(deployment, _delivery_id(i)) for i in range(4)}
+        target = _delivery_id(1)
+        try:
+            await asyncio.gather(
+                *(_wait_state(sink_harness, _delivery_id(i), "RUNNING") for i in range(4))
+            )
+            await _set_delivery(sink_harness, target, start=False)
+            await _wait_state(sink_harness, target, "STOPPED")
+            # 重复 STOP 幂等：状态保持 STOPPED，不报错。
+            await _set_delivery(sink_harness, target, start=False)
+            await asyncio.sleep(1)
+            assert (await _delivery_view(sink_harness))[target]["state"] == "STOPPED"
+    
+            await _publish_per_device(sink_harness, batches=2)
+            running_names = names - {_durable_name(deployment, target)}
+            await _wait_all_drained(sink_harness, running_names)
+            infos = await _consumer_infos(sink_harness)
+            stopped_durable = _durable_name(deployment, target)
+            assert infos[stopped_durable].num_pending + infos[stopped_durable].num_ack_pending > 0
+    
+            # 恢复后原位排空；重复 START 同样幂等。
+            await _set_delivery(sink_harness, target, start=True)
+            await _set_delivery(sink_harness, target, start=True)
+            await _wait_state(sink_harness, target, "RUNNING")
+            await _wait_all_drained(sink_harness, names)
+            total = 4 * 2 * POINTS_PER_BATCH
+            records = await _drain_kafka(sink_harness, min_messages=total)
+>           assert len(records) == total
+E           assert 8 == 400
+E            +  where 8 = len([ConsumerRecord(topic='wh-history-qa-3e026faad312', partition=0, offset=0, timestamp=1795840617071, timestamp_type=0, ..."p048":[49.0,1],"p049":[50.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=976, headers=()), ...])
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:481: AssertionError
+_ TestConcurrentReliableDelivery.test_r7_05_legacy_template_broad_subject_serial_path _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc2e5eed90>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_05_legacy_template_bro0/sink-root-311a777b6d...c4', 'outsider': 'a94324b33ea447cfb7787d85db8006984af8284d7d21b504902130890ae08ac2'}, staleness_ms=60000, process=None)
+
+    async def test_r7_05_legacy_template_broad_subject_serial_path(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        legacy_id = "power_history"
+        _write_concurrent_root(
+            sink_harness,
+            devices=DEVICES,
+            concurrent=False,
+            delivery_ids=[legacy_id],
+        )
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        name = _durable_name(f"qa-{sink_harness.token}", legacy_id)
+        try:
+            await _wait_state(sink_harness, legacy_id, "RUNNING")
+            infos = await _consumer_infos(sink_harness)
+            assert set(infos) == {name}
+            assert infos[name].config.filter_subject == (
+                f"wh.hist.batch.{WIND_FARM_ID}.{COLLECTOR_ID}.>"
+            )
+            total = await _publish_per_device(sink_harness, batches=2)
+            await _wait_all_drained(sink_harness, {name})
+            records = await _drain_kafka(sink_harness, min_messages=total)
+>           assert len(records) == total
+E           assert 8 == 400
+E            +  where 8 = len([ConsumerRecord(topic='wh-history-qa-311a777b6d31', partition=0, offset=0, timestamp=1795840687728, timestamp_type=0, ..."p048":[49.0,1],"p049":[50.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=976, headers=()), ...])
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:508: AssertionError
+_ TestConcurrentReliableDelivery.test_r7_06_delivery_identity_switch_no_dual_write _
+
+self = <tests.sink_service.system.test_concurrent_delivery_e2e.TestConcurrentReliableDelivery object at 0x79bc2e5ef7d0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_r7_06_delivery_identity_s0/sink-root-566218fafd...2e', 'outsider': '7a30917243a8c2aadc4709894e1070e834b6576944c7f53f29d9fe4638f3ee8a'}, staleness_ms=60000, process=None)
+
+    async def test_r7_06_delivery_identity_switch_no_dual_write(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        old_id, new_id = "history_old", "history_new"
+        _write_concurrent_root(sink_harness, devices=["WT001"], delivery_ids=[old_id])
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        deployment = f"qa-{sink_harness.token}"
+        old_durable = _durable_name(deployment, old_id)
+        new_durable = _durable_name(deployment, new_id)
+        try:
+            await _wait_state(sink_harness, old_id, "RUNNING")
+            await sink_harness.publish_reliable(
+                sink_harness.make_batch(
+                    "reliable", seq=0, points=POINTS_PER_BATCH, device_id="WT001"
+                )
+            )
+            first = POINTS_PER_BATCH
+            await _wait_all_drained(sink_harness, {old_durable})
+            # 切换前再压入积压，验证新身份接管后不遗漏历史消息。
+            backlog = 0
+            for seq in range(20, 23):
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch(
+                        "reliable", seq=seq, points=POINTS_PER_BATCH, device_id="WT001"
+                    )
+                )
+                backlog += POINTS_PER_BATCH
+            await sink_harness.stop()
+            # 直接改写原始文档不会生成新一代；CURRENT 仍指向旧快照，重启后
+            # 进程会承载旧 Delivery（同 test_uc09_s03 的既有契约）。切换
+            # 身份前必须清除生成存储，强制新进程从编辑后的文档重新提交。
+            shutil.rmtree(sink_harness.root / ".generations")
+            (sink_harness.root / "CURRENT").unlink()
+    
+            _write_concurrent_root(sink_harness, devices=["WT001"], delivery_ids=[new_id])
+            await sink_harness.start()
+            try:
+                await _wait_state(sink_harness, new_id, "RUNNING")
+                view = await _delivery_view(sink_harness)
+                assert set(view) == {new_id}  # 旧 Delivery 不再被进程承载
+                await _wait_all_drained(sink_harness, {new_durable}, timeout=90)
+                infos = await _consumer_infos(sink_harness)
+                # 旧 Durable 作为 JetStream 资源保留（迁移须运维确认生命周期），
+                # 但新进程只向新 Durable 消费，Kafka 侧不得双写。
+                assert old_durable in infos and new_durable in infos
+                expected_total = first + backlog
+                records = await _drain_kafka(sink_harness, min_messages=expected_total, timeout=90)
+                payloads = [json_lib.loads(record.value.decode("utf-8")) for record in records]
+>               ids = {(payload["device_id"], payload["sample_id"]) for payload in payloads}
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:569: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x79bc2dfabf70>
+
+>   ids = {(payload["device_id"], payload["sample_id"]) for payload in payloads}
+                                  ^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'sample_id'
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:569: KeyError
+_ TestRealtimeDelivery.test_uc04_s02_quality_preserved_and_expired_samples_dropped _
+
+self = <tests.sink_service.system.test_delivery_flow.TestRealtimeDelivery object at 0x79bc2e5f9a50>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_uc04_s02_quality_preserve0/sink-root-b96fa4dadf...00', 'outsider': 'aeb5d8df90704051a061d6f786dd06bff61a76aeb5f2ea89d0b26113d6593cdb'}, staleness_ms=60000, process=None)
+
+    async def test_uc04_s02_quality_preserved_and_expired_samples_dropped(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        """good/bad/uncertain 原样派发；过期样本零写入（§14.5.2 断言 1）。"""
+        sink_harness.write_dual_channel_root(reliable=False)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+>           await sink_harness.publish_realtime([_quality_batch(sink_harness)])
+                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_delivery_flow.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_uc04_s02_quality_preserve0/sink-root-b96fa4dadf...00', 'outsider': 'aeb5d8df90704051a061d6f786dd06bff61a76aeb5f2ea89d0b26113d6593cdb'}, staleness_ms=60000, process=None)
+
+    def _quality_batch(harness: SinkSystemHarness) -> SampleBatch:
+        now = datetime.now(UTC)
+>       return SampleBatch(
+            batch_id=f"b-quality-{harness.token}",
+            mode="realtime",
+            wind_farm_id=WIND_FARM_ID,
+            collector_id=COLLECTOR_ID,
+            task_id="task-qa",
+            device_type="wtg",
+            device_id=DEVICE_ID,
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            publish_time=now,
+            samples=(
+                SampleItem(
+                    point_id="q_good",
+                    sample_id=f"q-good-{harness.token}",
+                    value=11.0,
+                    quality="good",
+                    sample_time=now,
+                    max_staleness_ms=harness.staleness_ms,
+                ),
+                SampleItem(
+                    point_id="q_bad",
+                    sample_id=f"q-bad-{harness.token}",
+                    value=22.0,
+                    quality="bad",
+                    sample_time=now,
+                    max_staleness_ms=harness.staleness_ms,
+                ),
+                SampleItem(
+                    point_id="q_uncertain",
+                    sample_id=f"q-uncertain-{harness.token}",
+                    value=33.0,
+                    quality="uncertain",
+                    sample_time=now,
+                    max_staleness_ms=harness.staleness_ms,
+                ),
+                SampleItem(
+                    point_id="q_expired",
+                    sample_id=f"q-expired-{harness.token}",
+                    value=44.0,
+                    quality="good",
+                    sample_time=datetime.fromtimestamp(
+                        now.timestamp() - harness.staleness_ms / 1000.0 - 5, UTC
+                    ),
+                    max_staleness_ms=harness.staleness_ms,
+                ),
+            ),
+        )
+E       pydantic_core._pydantic_core.ValidationError: 2 validation errors for SampleBatch
+E       device_config_id
+E         Field required [type=missing, input_value={'batch_id': 'b-quality-b... raw_payload_hex=None))}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       sample_time
+E         Field required [type=missing, input_value={'batch_id': 'b-quality-b... raw_payload_hex=None))}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/sink_service/system/test_delivery_flow.py:45: ValidationError
+_ TestAckLossRedelivery.test_s3_03_dropped_jetstream_ack_causes_at_least_once_redelivery _
+
+self = <tests.sink_service.system.test_dlq_recovery.TestAckLossRedelivery object at 0x79bc2e60fb50>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_s3_03_dropped_jetstream_a0/sink-root-0b8488c72a...85', 'outsider': 'a8b293093431e3722865f4a58d8e27f6f8c24a3a096cc7abb9673d9719883731'}, staleness_ms=60000, process=None)
+
+    async def test_s3_03_dropped_jetstream_ack_causes_at_least_once_redelivery(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        """ACK 帧在线路丢失 -> 服务端重投 -> Kafka 出现同 sample_id 重复。"""
+        host, _, port = sink_harness.stack.nats.removeprefix("nats://").rpartition(":")
+        proxy = NatsFaultProxy(host, int(port), drop=drop_jetstream_ack)
+        await proxy.start()
+        try:
+            sink_harness.write_dual_channel_root(nats_url=proxy.address, ack_wait_seconds=5)
+            await sink_harness.provision_streams()
+            await sink_harness.start()
+            try:
+                batch = sink_harness.make_batch("reliable", seq=7, points=5)
+                sample_ids = {sample.sample_id for sample in batch.samples}
+                await sink_harness.publish_reliable(batch)
+    
+                async def _duplicates_seen() -> bool:
+                    records = await sink_harness.wait_kafka_messages(
+                        min_messages=len(batch.samples) + 1, timeout=8
+                    )
+                    if len(records) <= len(batch.samples):
+                        return False
+                    payloads = [json.loads(record.value.decode()) for record in records]
+                    observed = {item["sample_id"] for item in payloads}
+                    return sample_ids.issubset(observed)
+    
+                deadline = asyncio.get_running_loop().time() + 70
+                while asyncio.get_running_loop().time() < deadline:
+>                   if await _duplicates_seen():
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_dlq_recovery.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/test_dlq_recovery.py:186: in _duplicates_seen
+    observed = {item["sample_id"] for item in payloads}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x79bc2dfa9150>
+
+>   observed = {item["sample_id"] for item in payloads}
+                ^^^^^^^^^^^^^^^^^
+E   KeyError: 'sample_id'
+
+tests/sink_service/system/test_dlq_recovery.py:186: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.cluster:cluster.py:262 Topic wh-history-qa-0b8488c72ade not found in cluster metadata
+_ TestKafkaPartitionCacheE2E.test_partition_distribution_matches_default_partitioner _
+
+self = <tests.sink_service.system.test_kafka_partition_cache_e2e.TestKafkaPartitionCacheE2E object at 0x79bc2e22bfd0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_partition_distribution_ma0/sink-root-3c717f82ad...32', 'outsider': '98e8230d56010bf5916ab8906ee4055bad41f3d922f65a1678c9ac00124283da'}, staleness_ms=60000, process=None)
+
+    async def test_partition_distribution_matches_default_partitioner(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        topic = f"wh-l1-dist-{sink_harness.token}"
+        await _ensure_topic(sink_harness.stack.kafka, topic, 6)
+        sink_harness.write_dual_channel_root(ack_wait_seconds=10)
+        _retarget_kafka_topic(sink_harness, topic)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            expected = await _reference_partitions(sink_harness.stack.kafka, topic, DEVICES)
+            assert len(set(expected.values())) > 1, "测试前提：8 个 Key 必须分布到多分区"
+    
+            # 8 设备 × 2 批 × 20 点 = 320 条；seq 全局唯一，避免 batch/sample 标识碰撞。
+            for round_idx in range(2):
+                for device_idx, device in enumerate(DEVICES):
+                    await sink_harness.publish_reliable(
+                        sink_harness.make_batch(
+                            "reliable",
+                            seq=round_idx * 100 + device_idx,
+                            points=20,
+                            device_id=device,
+                        )
+                    )
+            consumer = _open_consumer(sink_harness.stack.kafka, topic)
+            await consumer.start()
+            try:
+                records = await _drain(consumer, 320, deadline_s=45.0)
+            finally:
+                await consumer.stop()
+>           assert len(records) == 320
+E           assert 16 == 320
+E            +  where 16 = len([ConsumerRecord(topic='wh-l1-dist-3c717f82adcf', partition=4, offset=0, timestamp=1795841036251, timestamp_type=0, key...018":[118.0,1],"p019":[119.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=525, headers=()), ...])
+
+tests/sink_service/system/test_kafka_partition_cache_e2e.py:204: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-l1-504fc0c04c.
+_ TestKafkaPartitionCacheE2E.test_topic_expansion_invalidates_cache_and_uses_new_partitions _
+
+self = <tests.sink_service.system.test_kafka_partition_cache_e2e.TestKafkaPartitionCacheE2E object at 0x79bc2e22cad0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_topic_expansion_invalidat0/sink-root-8fc9588e73...4b', 'outsider': 'ce2437aefaf1e750673fb9e90165869c31a967b8b7e89cf15bccd0c636e480e2'}, staleness_ms=60000, process=None)
+
+    async def test_topic_expansion_invalidates_cache_and_uses_new_partitions(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        topic = f"wh-l1-expand-{sink_harness.token}"
+        await _ensure_topic(sink_harness.stack.kafka, topic, 6)
+        sink_harness.write_dual_channel_root(ack_wait_seconds=10)
+        _retarget_kafka_topic(sink_harness, topic)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            phase1_devices = [f"WT{idx:03d}" for idx in range(10, 14)]
+            expected6 = await _reference_partitions(sink_harness.stack.kafka, topic, phase1_devices)
+            for seq, device in enumerate(phase1_devices):
+                for round_idx in range(2):
+                    await sink_harness.publish_reliable(
+                        sink_harness.make_batch(
+                            "reliable",
+                            seq=200 + seq * 2 + round_idx,
+                            points=20,
+                            device_id=device,
+                        )
+                    )
+            # 手动 assign 且启动即覆盖 8 个分区（6/7 此刻尚不存在，fetcher 后台
+            # 重试，元数据刷新后自动接管）。不使用 consumer group：第一轮实测
+            # 扩分区会使 group coordinator 短暂失效、getmany 瞬时返空导致空转；
+            # 也避免中途 reassign/seek——第三轮实测二者与 fetcher 重置竞争会挂死。
+            consumer = _open_assigned_consumer(sink_harness.stack.kafka, topic, list(range(8)))
+            await consumer.start()
+            all_records: list[Any] = []
+            try:
+                phase1 = await _drain(consumer, 160, deadline_s=45.0)
+                all_records.extend(phase1)
+>               assert len(phase1) == 160
+E               assert 8 == 160
+E                +  where 8 = len([ConsumerRecord(topic='wh-l1-expand-8fc9588e7338', partition=2, offset=0, timestamp=1795841090043, timestamp_type=0, k...018":[219.0,1],"p019":[220.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=525, headers=()), ...])
+
+tests/sink_service/system/test_kafka_partition_cache_e2e.py:256: AssertionError
+_ TestKafkaPartitionCacheE2E.test_restart_reopens_producer_and_keeps_partition_stable _
+
+self = <tests.sink_service.system.test_kafka_partition_cache_e2e.TestKafkaPartitionCacheE2E object at 0x79bc2e22d550>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_restart_reopens_producer_0/sink-root-6d4208da8c...db', 'outsider': '9cc05005f29fab948b47c4bcc734dd64bbf1406051c7c1797d964990d014ab4c'}, staleness_ms=60000, process=None)
+
+    async def test_restart_reopens_producer_and_keeps_partition_stable(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        topic = f"wh-l1-restart-{sink_harness.token}"
+        await _ensure_topic(sink_harness.stack.kafka, topic, 6)
+        sink_harness.write_dual_channel_root(ack_wait_seconds=10)
+        _retarget_kafka_topic(sink_harness, topic)
+        await sink_harness.provision_streams()
+        device = "WT200"
+        await sink_harness.start()
+        try:
+            expected = (await _reference_partitions(sink_harness.stack.kafka, topic, [device]))[
+                device
+            ]
+            for seq in range(2):
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch("reliable", seq=seq, points=20, device_id=device)
+                )
+            consumer = _open_consumer(sink_harness.stack.kafka, topic)
+            await consumer.start()
+            try:
+                before = await _drain(consumer, 40, deadline_s=45.0)
+            finally:
+                await consumer.stop()
+>           assert len(before) == 40
+E           assert 2 == 40
+E            +  where 2 = len([ConsumerRecord(topic='wh-l1-restart-6d4208da8c79', partition=3, offset=0, timestamp=1795841143787, timestamp_type=0, ...0,1],"p018":[19.0,1],"p019":[20.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=496, headers=())])
+
+tests/sink_service/system/test_kafka_partition_cache_e2e.py:348: AssertionError
+_ TestReplayHeaderAckBypass.test_forged_replay_header_does_not_skip_delivery_or_early_ack _
+
+self = <tests.sink_service.system.test_replay_header_ack_bypass_e2e.TestReplayHeaderAckBypass object at 0x79bc2e0839d0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_forged_replay_header_does0/sink-root-a1b1f0f517...f7', 'outsider': '797dc63790eae7ffaf0c8df7176d857cc90ee53faaac39e726161180cf7a1164'}, staleness_ms=60000, process=None)
+
+    async def test_forged_replay_header_does_not_skip_delivery_or_early_ack(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        sink_harness.write_dual_channel_root()
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            batch = sink_harness.make_batch("reliable", seq=4711, points=5)
+            marker = batch.samples[0].sample_id
+    
+            client = await nats.connect(servers=sink_harness.stack.nats, connect_timeout=10)
+            try:
+                js = client.jetstream()
+                ack = await js.publish(
+                    batch.subject(),
+                    batch.encode(),
+                    timeout=10,
+                    headers=FORGED_HEADER,
+                )
+                assert ack.stream == sink_harness.history_stream
+            finally:
+                await client.drain()
+    
+            records = await sink_harness.wait_kafka_messages(min_messages=1, timeout=60)
+            matched = [record for record in records if marker.encode() in record.value]
+>           assert matched, (
+                "forged Wh-Replay-Delivery header skipped real delivery: "
+                f"no Kafka record contains {marker}"
+            )
+E           AssertionError: forged Wh-Replay-Delivery header skipped real delivery: no Kafka record contains s-reliable-4711-0-a1b1
+E           assert []
+
+tests/sink_service/system/test_replay_header_ack_bypass_e2e.py:61: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.cluster:cluster.py:262 Topic wh-history-qa-a1b1f0f5178d not found in cluster metadata
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-a1b1f0f5178d.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-a1b1f0f5178d.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-a1b1f0f5178d.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-a1b1f0f5178d.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-a1b1f0f5178d.
+____ TestUC09S03.test_restart_keeps_single_durable_and_no_duplicate_writes _____
+
+self = <tests.sink_service.system.test_uc09_s03_config_port_restart.TestUC09S03 object at 0x79bc2e09a0d0>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_restart_keeps_single_dura0/sink-root-2f7c79abd0...09', 'outsider': '1233a59d5f11d64873cd9c7596f500345c41a803c2102980d1b1f7c49a5e7659'}, staleness_ms=60000, process=None)
+
+    async def test_restart_keeps_single_durable_and_no_duplicate_writes(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        """同根冷重启：durable 同名、零重投，Kafka sample_id 全局无重复。"""
+        sink_harness.write_dual_channel_root(ack_wait_seconds=10)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            for seq in range(2):
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch("reliable", seq=seq, points=20)
+                )
+>           first_ids = await _kafka_sample_ids(sink_harness, min_messages=40)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_uc09_s03_config_port_restart.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_restart_keeps_single_dura0/sink-root-2f7c79abd0...09', 'outsider': '1233a59d5f11d64873cd9c7596f500345c41a803c2102980d1b1f7c49a5e7659'}, staleness_ms=60000, process=None)
+min_messages = 40
+
+    async def _kafka_sample_ids(harness: SinkSystemHarness, min_messages: int) -> set[str]:
+        """独立 group、earliest 全量读取，返回 sample_id 集合（跨重启去重观测）。"""
+        import json as json_lib
+        import uuid
+    
+        from aiokafka import AIOKafkaConsumer
+    
+        consumer = AIOKafkaConsumer(
+            harness.kafka_topic,
+            bootstrap_servers=harness.stack.kafka,
+            auto_offset_reset="earliest",
+            group_id=f"qa-uc09-{uuid.uuid4().hex[:10]}",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        try:
+            records: list[Any] = []
+            deadline = asyncio.get_running_loop().time() + 45
+            while asyncio.get_running_loop().time() < deadline and len(records) < min_messages:
+                result = await consumer.getmany(timeout_ms=2000, max_records=500)
+                for messages in result.values():
+                    records.extend(messages)
+            sample_ids = set()
+            for record in records:
+                payload = json_lib.loads(record.value.decode("utf-8"))
+>               sample_ids.add(payload["sample_id"])
+                               ^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'sample_id'
+
+tests/sink_service/system/test_uc09_s03_config_port_restart.py:91: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.cluster:cluster.py:262 Topic wh-history-qa-2f7c79abd0bf not found in cluster metadata
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-uc09-9acd7ce391.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-uc09-9acd7ce391.
+________ TestUC10S03.test_old_durable_preserved_after_deployment_change ________
+
+self = <tests.sink_service.system.test_uc10_s03_version_ownership.TestUC10S03 object at 0x79bc2e0a1150>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_old_durable_preserved_aft0/sink-root-9af273abf0...9e', 'outsider': 'aed6fd6fc6bc4d819e652f4bed900ecf4fe7bd2a39560cf3638258f08d00b28e'}, staleness_ms=60000, process=None)
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-400/test_old_durable_preserved_aft0')
+
+    async def test_old_durable_preserved_after_deployment_change(
+        self, sink_harness: SinkSystemHarness, tmp_path: Path
+    ) -> None:
+        """deployment 切换：旧 Durable 保留不被接管，新实例只用新 Durable 交付。"""
+        sink_harness.write_dual_channel_root(ack_wait_seconds=10)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            for seq in range(2):
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch("reliable", seq=seq, points=20)
+                )
+            records = await sink_harness.wait_kafka_messages(min_messages=40, timeout=45)
+>           assert len(records) >= 40
+E           assert 2 >= 40
+E            +  where 2 = len([ConsumerRecord(topic='wh-history-qa-9af273abf0a9', partition=0, offset=0, timestamp=1795841464232, timestamp_type=0, ...0,1],"p018":[19.0,1],"p019":[20.0,1]}}', checksum=None, serialized_key_size=12, serialized_value_size=496, headers=())])
+
+tests/sink_service/system/test_uc10_s03_version_ownership.py:112: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.cluster:cluster.py:262 Topic wh-history-qa-9af273abf0a9 not found in cluster metadata
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-9af273abf0a9.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-probe-9af273abf0a9.
+______ TestUC11S02.test_shared_sink_stop_one_delivery_isolates_the_other _______
+
+self = <tests.sink_service.system.test_uc11_s02_shared_sink_isolation.TestUC11S02 object at 0x79bc2e0ac090>
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-400/test_shared_sink_stop_one_deli0/sink-root-3dff46ab4f...d8', 'outsider': 'c361b650df59668202ac6f47e7368ef90eee5490761d77d938e8beb8fe0fa5bc'}, staleness_ms=60000, process=None)
+
+    async def test_shared_sink_stop_one_delivery_isolates_the_other(
+        self, sink_harness: SinkSystemHarness
+    ) -> None:
+        """STOP Delivery A 期间 B 持续交付；恢复后 A 原位排空，零交叉零重复。"""
+        _write_shared_sink_root(sink_harness)
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            await _wait_state(sink_harness, DELIVERY_A, "RUNNING")
+            await _wait_state(sink_harness, DELIVERY_B, "RUNNING")
+            durables = await _sink_durable_names(sink_harness)
+            assert len(durables) == 2, durables
+    
+            # 基线双通道各 2 批 × 20 点。
+            for seq in range(2):
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch("reliable", seq=seq, points=20, device_id=DEVICE_A)
+                )
+                await sink_harness.publish_reliable(
+                    sink_harness.make_batch(
+                        "reliable", seq=seq + 100, points=20, device_id=DEVICE_B
+                    )
+                )
+>           baseline_ids = await _kafka_sample_ids(sink_harness, min_messages=80)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:227: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:118: in _kafka_sample_ids
+    return {json_lib.loads(record.value.decode("utf-8"))["sample_id"] for record in records}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x79bc2e122920>
+
+>   return {json_lib.loads(record.value.decode("utf-8"))["sample_id"] for record in records}
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'sample_id'
+
+tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:118: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.cluster:cluster.py:262 Topic wh-history-qa-3dff46ab4ff4 not found in cluster metadata
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-uc11-fa4cfd14ec.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group qa-uc11-fa4cfd14ec.
+=============================== warnings summary ===============================
+tests/sink_service/system/test_concurrent_delivery_e2e.py:50
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_delivery_e2e.py:50: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:51
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_delivery_e2e.py:51: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_delivery_flow.py:36
+  /home/luosh/wind-hub/tests/sink_service/system/test_delivery_flow.py:36: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_dlq_recovery.py:32
+  /home/luosh/wind-hub/tests/sink_service/system/test_dlq_recovery.py:32: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_dlq_recovery.py:33
+  /home/luosh/wind-hub/tests/sink_service/system/test_dlq_recovery.py:33: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_grpc_api.py:22
+  /home/luosh/wind-hub/tests/sink_service/system/test_grpc_api.py:22: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_kafka_partition_cache_e2e.py:43
+  /home/luosh/wind-hub/tests/sink_service/system/test_kafka_partition_cache_e2e.py:43: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_kafka_partition_cache_e2e.py:44
+  /home/luosh/wind-hub/tests/sink_service/system/test_kafka_partition_cache_e2e.py:44: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_lifecycle.py:45
+  /home/luosh/wind-hub/tests/sink_service/system/test_lifecycle.py:45: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_lifecycle.py:154
+  /home/luosh/wind-hub/tests/sink_service/system/test_lifecycle.py:154: PytestUnknownMarkWarning: Unknown pytest.mark.failure - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.failure
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_realtime_expiry_e2e.py:27
+  /home/luosh/wind-hub/tests/sink_service/system/test_realtime_expiry_e2e.py:27: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_replay_header_ack_bypass_e2e.py:27
+  /home/luosh/wind-hub/tests/sink_service/system/test_replay_header_ack_bypass_e2e.py:27: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_replay_starvation_e2e.py:31
+  /home/luosh/wind-hub/tests/sink_service/system/test_replay_starvation_e2e.py:31: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_replay_starvation_e2e.py:32
+  /home/luosh/wind-hub/tests/sink_service/system/test_replay_starvation_e2e.py:32: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_uc09_s03_config_port_restart.py:38
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc09_s03_config_port_restart.py:38: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_uc09_s03_config_port_restart.py:39
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc09_s03_config_port_restart.py:39: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_uc10_s03_version_ownership.py:32
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc10_s03_version_ownership.py:32: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_uc10_s03_version_ownership.py:33
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc10_s03_version_ownership.py:33: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:47
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:47: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:48
+  /home/luosh/wind-hub/tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py:48: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_01_four_devices_exact_subjects_ordering_and_parallelism
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_02_kafka_pause_no_early_ack_then_drain
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_03_poison_batch_on_one_device_isolated
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_04_stop_isolation_and_idempotent_start_stop
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_05_legacy_template_broad_subject_serial_path
+FAILED tests/sink_service/system/test_concurrent_delivery_e2e.py::TestConcurrentReliableDelivery::test_r7_06_delivery_identity_switch_no_dual_write
+FAILED tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+FAILED tests/sink_service/system/test_dlq_recovery.py::TestAckLossRedelivery::test_s3_03_dropped_jetstream_ack_causes_at_least_once_redelivery
+FAILED tests/sink_service/system/test_kafka_partition_cache_e2e.py::TestKafkaPartitionCacheE2E::test_partition_distribution_matches_default_partitioner
+FAILED tests/sink_service/system/test_kafka_partition_cache_e2e.py::TestKafkaPartitionCacheE2E::test_topic_expansion_invalidates_cache_and_uses_new_partitions
+FAILED tests/sink_service/system/test_kafka_partition_cache_e2e.py::TestKafkaPartitionCacheE2E::test_restart_reopens_producer_and_keeps_partition_stable
+FAILED tests/sink_service/system/test_replay_header_ack_bypass_e2e.py::TestReplayHeaderAckBypass::test_forged_replay_header_does_not_skip_delivery_or_early_ack
+FAILED tests/sink_service/system/test_uc09_s03_config_port_restart.py::TestUC09S03::test_restart_keeps_single_durable_and_no_duplicate_writes
+FAILED tests/sink_service/system/test_uc10_s03_version_ownership.py::TestUC10S03::test_old_durable_preserved_after_deployment_change
+FAILED tests/sink_service/system/test_uc11_s02_shared_sink_isolation.py::TestUC11S02::test_shared_sink_stop_one_delivery_isolates_the_other
+15 failed, 23 passed, 21 warnings in 1079.85s (0:17:59)

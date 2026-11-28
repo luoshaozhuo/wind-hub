@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="58" time="969.763" timestamp="2026-11-28T13:28:42.635222+08:00" hostname="boss"><testcase classname="tests.system.e2e.full_chain.test_e2e_avc_feedback" name="test_e2e_04_avc_voltage_and_reactive_feedback" time="45.123" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_boundaries" name="test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain0]" time="32.393" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_boundaries" name="test_e2e_03_bess_reaches_physical_soc_boundary[bess_boundary_chain1]" time="33.096" /><testcase classname="tests.system.e2e.full_chain.test_e2e_bess_control" name="test_e2e_03_ppc_charge_discharge" time="16.930" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[agc_enable-1]" time="14.780" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[agc_power_setpoint-1500.0]" time="14.802" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_enable-1]" time="14.829" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_voltage_setpoint-1.02]" time="14.831" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[avc_reactive_setpoint-250.0]" time="14.791" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control" name="test_e2e_04_ppc_control_applied[ffr_enable-1]" time="14.817" /><testcase classname="tests.system.e2e.full_chain.test_e2e_control_security" name="test_e2e_04_request_replay_and_unauthorized_control" time="2.926" /><testcase classname="tests.system.e2e.full_chain.test_e2e_grid_ffr" name="test_e2e_04_frequency_disturbance_ffr" time="5.399" /><testcase classname="tests.system.e2e.full_chain.test_e2e_lifecycle" name="test_e2e_09_cli_lifecycle_and_worker_cleanup" time="65.730" /><testcase classname="tests.system.e2e.full_chain.test_e2e_multirate" name="test_e2e_06_reliable_multirate[wind-plant-physical-0.05]" time="60.450" /><testcase classname="tests.system.e2e.full_chain.test_e2e_multirate" name="test_e2e_06_reliable_multirate[e2e-wind-100ms-0.1]" time="59.432" /><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-01-WTG_SIM01-wind_speed]" time="15.473" /><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-02-PV_SIM01-active_power]" time="15.411" /><testcase classname="tests.system.e2e.full_chain.test_e2e_physical_devices" name="test_physical_device_reaches_gateway_and_redis[E2E-03-BESS_SIM01-soc]" time="15.098" /><testcase classname="tests.system.e2e.full_chain.test_e2e_pv_bess_golden" name="test_pv_bess_four_output_golden" time="122.221"><failure message="AssertionError: CLI polling timeout: gateway read gw-pv_sim01 e2e_sink_target; last={'schema_version': 1, 'command': 'gateway ReadVariables', 'status': 'SUCCESS', 'target': 'gw-pv_sim01', 'data': {'gateway_id': 'gw-pv_sim01', 'values': [{'point_id': 'e2e_sink_target', 'value': {'double_value': 0.0}, 'quality': 'GOOD', 'sample_timestamp': '2026-11-28T05:39:18.245948Z', 'queried_at': '2026-11-28T05:39:18.295883Z', 'freshness': 'CURRENT', 'error_code': '', 'error_message': ''}]}, 'error_code': None}; logs=/tmp/pytest-of-luosh/pytest-405/full-chain0">full_chain = &lt;tests.system.e2e.full_chain.conftest.FullChainHarness object at 0x73348f4e7dd0&gt;
+
+    async def test_pv_bess_four_output_golden(full_chain: Any) -&gt; None:
+        """只启动 PV/BESS 任务，不重跑 WTG；四出口均绑定本次 Generation。"""
+        harness = full_chain
+        assert harness.sink is not None
+        generation_id: str | None = None
+        started: list[tuple[Any, str]] = []
+        try:
+            for config in (harness.cli_rt, harness.cli_rel):
+                for device_id in GOLDEN_DEVICES:
+                    await harness.cli_call(config, "collector", "start", device_id, "--yes")
+                    started.append((config, device_id))
+            started_generation = await harness.cli_call(
+                harness.cli_rt,
+                "data-generator",
+                "start",
+                "e2e-pv-1000",
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            assert started_generation["data"]["accepted"] is True
+            generation_id = str(started_generation["data"]["generation_id"])
+            harness.generation_id = generation_id
+            for _ in range(100):
+                path = harness.recording_path(generation_id)
+                if path.is_file() and path.stat().st_size:
+                    break
+                await asyncio.sleep(0.1)
+            first_row = harness.read_recording(generation_id)[0]
+            generation_start = _time(first_row["produced_at"])
+            golden_start = generation_start + timedelta(seconds=20)
+            for _ in range(150):
+                rows = harness.read_recording(generation_id)
+                if _time(rows[-1]["produced_at"]) &gt;= golden_start:
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                raise AssertionError("PV source did not reach its solar-noon Golden window")
+    
+            for device_id, point_id in GOLDEN_DEVICES.items():
+                redis = await harness.sink.wait_redis_value(
+                    harness.redis_key(device_id, point_id),
+                    timeout=90,
+                    match=lambda value: _time(value["sample_time"]) &gt;= generation_start,
+                )
+                assert redis["device_id"] == device_id
+                assert redis["point_id"] == point_id
+                assert redis["quality"] == "good"
+                redis_sample_id = str(redis["sample_id"])
+                assert redis_sample_id
+                redis_value = _number(redis["value"])
+                redis_sample_time = _time(redis["sample_time"])
+                source_time, source_value, source_delta, tolerance = _source_truth(
+                    harness, generation_id, device_id, point_id, redis_sample_time
+                )
+                assert abs(redis_value - source_value) &lt;= tolerance
+    
+&gt;               gateway = await harness.poll(
+                    harness.cli_rt,
+                    "gateway",
+                    "read",
+                    f"gw-{device_id.lower()}",
+                    SINK_TARGET_POINT,
+                    predicate=lambda data, expected=redis_value, limit=tolerance: bool(
+                        data.get("values")
+                    )
+                    and data["values"][0].get("quality") == "GOOD"
+                    and abs(_number(data["values"][0]["value"]) - expected) &lt;= limit,
+                    timeout=90,
+                )
+
+tests/system/e2e/full_chain/test_e2e_pv_bess_golden.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/full_chain/conftest.py:737: in poll
+    return await self.cli.poll_cli(config, *args, predicate=predicate, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x7334933dba90&gt;
+config = PosixPath('/tmp/pytest-of-luosh/pytest-405/full-chain0/cli-realtime.yaml')
+predicate = &lt;function test_pv_bess_four_output_golden.&lt;locals&gt;.&lt;lambda&gt; at 0x73348db2ec00&gt;
+timeout = 90, args = ('gateway', 'read', 'gw-pv_sim01', 'e2e_sink_target')
+deadline = 223832.856289575
+
+    async def poll_cli(
+        self,
+        config: Path,
+        *args: str,
+        predicate: Callable[[Any], bool],
+        timeout: float = 60,
+    ) -&gt; Any:
+        deadline = time.monotonic() + timeout
+        latest: dict[str, Any] = {}
+        while time.monotonic() &lt; deadline:
+            latest = await self.cli(config, *args, check=False)
+            data = latest.get("data")
+            if (
+                latest.get("status") == "SUCCESS"
+                and isinstance(data, dict | list)
+                and predicate(data)
+            ):
+                return data
+            await asyncio.sleep(0.4)
+&gt;       raise AssertionError(
+            f"CLI polling timeout: {' '.join(args)}; last={latest}; logs={self.root}"
+        )
+E       AssertionError: CLI polling timeout: gateway read gw-pv_sim01 e2e_sink_target; last={'schema_version': 1, 'command': 'gateway ReadVariables', 'status': 'SUCCESS', 'target': 'gw-pv_sim01', 'data': {'gateway_id': 'gw-pv_sim01', 'values': [{'point_id': 'e2e_sink_target', 'value': {'double_value': 0.0}, 'quality': 'GOOD', 'sample_timestamp': '2026-11-28T05:39:18.245948Z', 'queried_at': '2026-11-28T05:39:18.295883Z', 'freshness': 'CURRENT', 'error_code': '', 'error_message': ''}]}, 'error_code': None}; logs=/tmp/pytest-of-luosh/pytest-405/full-chain0
+
+tests/cli/test_r1f3_strict_cli_e2e.py:226: AssertionError</failure></testcase><testcase classname="tests.system.e2e.full_chain.test_e2e_pv_irradiance" name="test_e2e_02_pv_irradiance_and_capacity" time="15.284" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_redis_recovers_latest_value" time="7.086" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_kafka_outage_holds_and_recovers" time="24.460" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_nats_recovers_both_channels" time="11.064" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_invalid_reliable_batch_is_dlq_acked" time="0.012" /><testcase classname="tests.system.e2e.full_chain.test_e2e_recovery" name="test_e2e_10_gateway_restart_recovers_data" time="15.337" /><testcase classname="tests.system.e2e.full_chain.test_e2e_replay" name="test_e2e_05_csv_replay_recording[1]" time="6.360" /><testcase classname="tests.system.e2e.full_chain.test_e2e_replay" name="test_e2e_05_csv_replay_recording[2]" time="6.910" /><testcase classname="tests.system.e2e.full_chain.test_e2e_resources" name="test_r4e_resources_and_formal_stop_all_release_complete_trees" time="47.747" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[missing]" time="0.670" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[malformed]" time="0.008" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_bearer_rejects_bad_credentials_without_write[unregistered]" time="0.006" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_commander_identity_cannot_write_gateway_or_generator" time="1.426" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_stopped_g1_write_rejected_and_g2_has_no_replay" time="3.521" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_gateway_lease_expiry_renew_lost_and_update_precondition" time="1.210" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_commander_stop_unknown_restart_no_replay_and_new_request_independent" time="4.258" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_modbus_illegal_address_and_unset_scalar_reject_without_write" time="0.772" /><testcase classname="tests.system.e2e.full_chain.test_e2e_security_recovery" name="test_r4e_corrupt_g1_recording_fails_closed_and_g2_parses_independently" time="6.879" /><testcase classname="tests.system.e2e.full_chain.test_e2e_seeded" name="test_e2e_05_seeded_physical_input_is_reproducible" time="30.337" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_semantic_matrix_matches_live_cli_and_rpc_descriptors" time="0.013" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_cli_semantic_delta_has_exact_exit_and_error_contracts" time="19.142" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_diagnose_pipeline_correlates_real_collector_and_sink_samples" time="4.651" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_pipeline_diagnosis_is_strictly_device_scoped_on_real_chain" time="8.029" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_collector_cli_wrong_and_missing_token_cannot_start_task" time="1.348" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_common_service_semantics_on_all_six_deployments" time="2.622" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_generator_update_is_applied_and_idempotent" time="2.335" /><testcase classname="tests.system.e2e.full_chain.test_e2e_semantic_matrix" name="test_commander_token_simulation_applied" time="1.858" /><testcase classname="tests.system.e2e.full_chain.test_e2e_sink_outputs" name="test_e2e_07_four_sink_outputs" time="32.627" /><testcase classname="tests.system.e2e.full_chain.test_e2e_smoke" name="test_full_chain_physical_first_value" time="28.836" /><testcase classname="tests.system.e2e.full_chain.test_e2e_surface_matrix" name="test_e2e_08_executes_all_51_formal_rpcs" time="0.040" /><testcase classname="tests.system.e2e.full_chain.test_e2e_surface_matrix" name="test_e2e_08_executes_all_73_cli_leaves" time="27.794" /><testcase classname="tests.system.e2e.full_chain.test_e2e_wind_step" name="test_e2e_01_wind_step" time="27.584" /><testcase classname="tests.system.e2e.full_chain.test_i08_config_governance" name="test_i08_collector_local_publication_is_disabled" time="1.920" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i01_recording_gateway_identity_window_and_dg_lease_release" time="2.049" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i02_stopped_read_rejected_without_publish_and_running_cadence" time="6.411" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i03_dual_observers_metrics_sequences_and_sink_outputs" time="9.465" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i04_fixed_v2_batches_reach_four_real_outputs" time="3.267" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i05_real_modbus_control_audit_replay_auth_and_unknown" time="5.483" /><testcase classname="tests.system.e2e.full_chain.test_integration_segments" name="test_i07_target_sink_mapping_release_and_lease_fencing" time="22.233" /></testsuite></testsuites>
