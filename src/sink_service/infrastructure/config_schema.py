@@ -211,9 +211,9 @@ def validate_service_technology(service: dict[str, Any]) -> None:
     if any(not isinstance(url, str) or not url.startswith("nats://") for url in nats["servers"]):
         raise ConfigurationError("nats.servers contains an invalid NATS URL")
     if nats.get("realtime_subject") != "wh.rt.batch":
-        raise ConfigurationError("realtime NATS subject must match the v2 batch contract")
+        raise ConfigurationError("realtime NATS subject must match the SampleBatch v4 subject contract")
     if nats.get("reliable_subject") != "wh.hist.batch":
-        raise ConfigurationError("reliable NATS subject must match the v2 batch contract")
+        raise ConfigurationError("reliable NATS subject must match the SampleBatch v4 subject contract")
     expect_positive_int(nats.get("max_samples_per_batch"), "nats.max_samples_per_batch", 10000)
     expect_positive_int(nats.get("max_batch_bytes"), "nats.max_batch_bytes", 16777216)
     for key in ("dlq_max_bytes", "dlq_max_age_seconds"):
