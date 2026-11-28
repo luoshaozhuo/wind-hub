@@ -144,6 +144,8 @@ class RealtimeDeliveryPort:
     async def stop(self) -> None:
         engine = self._engine
         if engine is None:
+            if self._writer is None:
+                self._stopping = False
             return
         self._stopping = True
         # Keep ownership until all work and the physical connection are settled.
