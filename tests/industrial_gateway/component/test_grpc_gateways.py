@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import grpc
@@ -163,6 +165,31 @@ async def test_read_variables_quality_states(harness) -> None:
 
     all_vars = await stub.ReadVariables(pb.ReadVariablesRequest(gateway_id="gw1"))
     assert len(all_vars.values) == 15
+
+
+async def test_expired_injected_value_is_not_reported_current(harness) -> None:
+    instance = harness.runtime.instances["gw1"]
+    instance.config = replace(
+        instance.config,
+        settings=instance.config.settings.model_copy(update={"read_stale_after_ms": 20}),
+    )
+    await instance.store.update(FEEDBACK_FLOAT, 123.0)
+    stub = harness.gateway_stub()
+    current = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+    )
+    assert current.values[0].quality == "GOOD"
+    assert current.values[0].freshness == "CURRENT"
+
+    await asyncio.sleep(0.05)
+    stale = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+    )
+    assert stale.values[0].quality == "BAD"
+    assert stale.values[0].freshness == "STALE"
+    assert stale.values[0].error_code == "STALE_VALUE"
+    assert stale.values[0].HasField("value")
+    assert stale.values[0].HasField("sample_timestamp")
 
 
 async def test_service_info_capabilities_and_status(harness) -> None:
