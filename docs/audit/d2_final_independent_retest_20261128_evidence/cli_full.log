@@ -1,0 +1,10 @@
+........................................................................ [ 23%]
+........................................................................ [ 46%]
+........................................................................ [ 70%]
+...........................................sssssssssss.................. [ 93%]
+................ss.                                                      [100%]
+=========================== short test summary info ============================
+SKIPPED [11] tests/cli/test_runtime_e2e.py: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36
+SKIPPED [1] tests/cli/test_system_real.py:38: NOT_RUN: 本机无 containerd socket/CLI，UC-02 containerd 9 宫格未执行
+SKIPPED [1] tests/cli/test_system_real.py:47: NOT_RUN: 本机无 iSulad，UC-02 isulad 9 宫格未执行
+294 passed, 13 skipped in 95.10s (0:01:35)

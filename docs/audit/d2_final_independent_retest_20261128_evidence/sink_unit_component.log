@@ -1,0 +1,33 @@
+........................................................................ [ 16%]
+........................................................................ [ 33%]
+........................................................................ [ 50%]
+........................................................................ [ 66%]
+........................................................................ [ 83%]
+......................................................................   [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_concurrent_delivery_e2e.py:50
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_delivery_e2e.py:50: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_concurrent_delivery_e2e.py:51
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_delivery_e2e.py:51: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_concurrent_throughput_s4.py:50
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_throughput_s4.py:50: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_concurrent_throughput_s4.py:51
+  /home/luosh/wind-hub/tests/sink_service/system/test_concurrent_throughput_s4.py:51: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+tests/sink_service/system/test_capacity_r14_sustained.py:69
+  /home/luosh/wind-hub/tests/sink_service/system/test_capacity_r14_sustained.py:69: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_capacity_r14_sustained.py:70
+  /home/luosh/wind-hub/tests/sink_service/system/test_capacity_r14_sustained.py:70: PytestUnknownMarkWarning: Unknown pytest.mark.jetstream - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.jetstream,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+430 passed, 6 warnings in 6.21s
