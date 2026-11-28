@@ -312,7 +312,12 @@ def _validate_delivery(
                 mapping,
                 f"deliveries.{delivery_id}.mapping[{index}]",
                 frozenset({"source_device_id", "source_point_id", "variable_id"}),
+                frozenset({"conversion"}),
             )
+            if "conversion" in mapping and mapping["conversion"] != "int01_to_bool":
+                raise ConfigurationError(
+                    f"deliveries.{delivery_id}.mapping[{index}]: unsupported conversion"
+                )
             for field in ("source_device_id", "source_point_id", "variable_id"):
                 expect_nonempty_str(mapping.get(field), f"deliveries.{delivery_id}.{field}")
             if (
