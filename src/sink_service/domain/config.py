@@ -4,19 +4,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any
-
-
-class ProcessRole(StrEnum):
-    REALTIME = "realtime"
-    RELIABLE = "reliable"
-
-
-class DesiredState(StrEnum):
-    START = "START"
-    STOP = "STOP"
 
 
 class ConfigurationError(ValueError):

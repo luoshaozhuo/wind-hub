@@ -15,7 +15,6 @@ from contracts import common_pb2, common_pb2_grpc
 from core.configuration.publication_identity import validate_relative_path
 
 _MAX_FILES = 1000
-_MAX_BYTES = 64 * 1024 * 1024
 
 
 async def _invoke(target: str, method: str, request: Any) -> Any:
@@ -30,7 +29,7 @@ async def _invoke(target: str, method: str, request: Any) -> Any:
     )
 
 
-def _verify_snapshot(files: Any) -> list[tuple[str, bytes]]:
+def _verify_snapshot(files: Any, *, max_bytes: int) -> list[tuple[str, bytes]]:
     if len(files) > _MAX_FILES:
         raise ValueError("snapshot exceeds maximum file count")
     seen: set[str] = set()
@@ -44,7 +43,7 @@ def _verify_snapshot(files: Any) -> list[tuple[str, bytes]]:
         seen.add(name.casefold())
         content = item.content
         total += len(content)
-        if total > _MAX_BYTES or item.size_bytes != len(content):
+        if total > max_bytes or item.size_bytes != len(content):
             raise ValueError("snapshot size mismatch or capacity exceeded")
         if hashlib.sha256(content).hexdigest() != item.sha256:
             raise ValueError("snapshot SHA-256 mismatch")
@@ -52,8 +51,8 @@ def _verify_snapshot(files: Any) -> list[tuple[str, bytes]]:
     return result
 
 
-def _write_snapshot(destination: Path, files: Any) -> None:
-    verified = _verify_snapshot(files)
+def _write_snapshot(destination: Path, files: Any, *, max_bytes: int) -> None:
+    verified = _verify_snapshot(files, max_bytes=max_bytes)
     if destination.exists() or destination.is_symlink():
         raise ValueError("snapshot destination must not exist")
     parent = destination.absolute().parent
@@ -85,7 +84,10 @@ def get_snapshot(target: str, scope: str, output: Path | None, candidate_id: str
     if normalized != "candidate" and candidate_id:
         raise typer.BadParameter("--candidate-id requires candidate scope")
 
+    from .main import runtime
+
     async def invoke() -> dict[str, Any]:
+        max_bytes = runtime().config().snapshot_max_bytes
         result = await _invoke(
             target,
             "GetConfigSnapshot",
@@ -95,9 +97,9 @@ def get_snapshot(target: str, scope: str, output: Path | None, candidate_id: str
             ),
         )
         if output is not None:
-            _write_snapshot(output, result.files)
+            _write_snapshot(output, result.files, max_bytes=max_bytes)
         else:
-            _verify_snapshot(result.files)
+            _verify_snapshot(result.files, max_bytes=max_bytes)
         data: dict[str, Any] = MessageToDict(result, preserving_proto_field_name=True)
         data["files"] = [
             {

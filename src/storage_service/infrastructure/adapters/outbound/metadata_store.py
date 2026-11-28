@@ -338,15 +338,6 @@ class MetadataStore:
             )
             return (int(row[0]), str(row[1])) if row is not None else None
 
-    def clear_blocked_partition(self, topic: str, partition: int, *, expected_offset: int) -> bool:
-        with self._mutex:
-            cursor = self._db().execute(
-                """DELETE FROM blocked_partitions
-                   WHERE topic = ? AND partition_id = ? AND offset_id = ?""",
-                (topic, partition, expected_offset),
-            )
-            return cursor.rowcount == 1
-
     def register_task(
         self,
         *,
@@ -506,60 +497,6 @@ class MetadataStore:
                 raise MetadataConflictError("wide subtable full identity is incomplete")
             result.append(ObjectRegistration(name, digest, identity_json, schema, state))
         return tuple(result)
-
-    def list_tables(
-        self,
-        *,
-        database: str | None = None,
-    ) -> list[ObjectRegistration]:
-        """Return only integrity-checked registered and READY physical objects."""
-        with self._mutex:
-            rows = (
-                self._db()
-                .execute(
-                    """SELECT name, full_sha256, identity_json,
-                          schema_fingerprint, state
-                   FROM storage_objects
-                   WHERE name LIKE 'tb_%' AND state='READY' ORDER BY name"""
-                )
-                .fetchall()
-            )
-        records: list[ObjectRegistration] = []
-        for name, digest, canonical, fingerprint, state in rows:
-            if (
-                not isinstance(name, str)
-                or re.fullmatch(r"tb_[0-9a-f]{24}", name) is None
-                or not isinstance(canonical, str)
-                or hashlib.sha256(canonical.encode("utf-8")).hexdigest() != digest
-            ):
-                raise MetadataConflictError("stored physical identity is not trustworthy")
-            try:
-                identity = json.loads(canonical)
-            except (ValueError, TypeError) as exc:
-                raise MetadataConflictError("stored physical identity is malformed") from exc
-            if (
-                not isinstance(identity, list)
-                or len(identity) != 6
-                or any(not isinstance(item, str) or not item for item in identity)
-            ):
-                raise MetadataConflictError("stored table identity has invalid components")
-            if name != f"tb_{digest[:24]}":
-                raise MetadataConflictError("physical table name differs from identity hash")
-            farm_hash = hashlib.sha256(
-                json.dumps([identity[0]], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            ).hexdigest()
-            if database is not None and database != f"wh_{farm_hash[:24]}":
-                continue
-            records.append(
-                ObjectRegistration(
-                    name,
-                    digest,
-                    canonical,
-                    fingerprint,
-                    state,
-                )
-            )
-        return records
 
     def register_semantic_pins(
         self,

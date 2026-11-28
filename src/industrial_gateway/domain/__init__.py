@@ -1,6 +1,5 @@
-from .point import PointDefinition as PointDefinition
-from .point import PointKey as PointKey
-from .point import PointRole as PointRole
-from .point import PointSnapshot as PointSnapshot
-from .point import PointWrite as PointWrite
-from .point import Scalar as Scalar
+"""Industrial Gateway 协议无关的标量契约。"""
+
+from typing import TypeAlias
+
+Scalar: TypeAlias = bool | int | float

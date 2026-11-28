@@ -65,17 +65,6 @@ def _document_id(identity: ConfigIdentity) -> str:
     return _digest(identity.config_type + "\x00" + identity.config_id)
 
 
-def _document_payload(document: PreparedDocument) -> dict[str, Any]:
-    return {
-        "config_type": document.identity.config_type,
-        "config_id": document.identity.config_id,
-        "schema_ref": document.schema_ref,
-        "file_version": document.file_version,
-        "content_sha256": document.content_sha256,
-        "payload": document.canonical_payload,
-    }
-
-
 class SQLiteRepository:
     """SQLite is the sole authority for repository versions and projections.
 
@@ -909,16 +898,6 @@ class SQLiteRepository:
             )
             return tuple(dict(row) for row in rows)
 
-    def get_reference_closure(
-        self,
-        identity: ConfigIdentity,
-        revision_id: int,
-        *,
-        max_versions: int = 1000,
-    ) -> tuple[dict[str, Any], ...]:
-        """Resolve a single root and its pinned historical dependencies."""
-        return self.get_bundle_versions((identity,), revision_id, max_versions=max_versions)
-
     @staticmethod
     def _load_version_closure(
         connection: sqlite3.Connection,
@@ -1110,16 +1089,6 @@ class SQLiteRepository:
                 **dict(row),
                 "documents": tuple(dict(item) for item in documents),
             }
-
-    def expire_candidates(self) -> int:
-        """Mark elapsed, uncommitted candidates without changing frozen contents."""
-        with self.write() as connection:
-            cursor = connection.execute(
-                "UPDATE candidates SET status = 'EXPIRED' "
-                "WHERE status = 'VALID' AND expires_at <= ?",
-                (_now(),),
-            )
-            return cursor.rowcount
 
     @staticmethod
     def _new_revision(

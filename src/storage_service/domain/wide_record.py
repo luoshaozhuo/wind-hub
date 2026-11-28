@@ -108,11 +108,6 @@ def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
     )
 
 
-def peek_wide_identity(raw: bytes) -> WideIdentity:
-    """Inspect validated routing identity without resolving a physical schema."""
-    return parse_wide_envelope(raw).identity
-
-
 @dataclass(frozen=True, slots=True)
 class WideRecord:
     """One complete logical device sample at a single data level and timestamp."""

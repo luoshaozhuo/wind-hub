@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from contracts import common_pb2
 
@@ -85,3 +86,51 @@ def test_config_get_runtime_view_with_stale_apply_results_is_success(cli_env: ob
     )
     result = cli_env.subprocess_invoke("config", "get", "collector", "--scope", "runtime")
     assert result.exit_code == 0, result.stdout
+
+
+@pytest.mark.parametrize("with_output", [False, True])
+def test_config_get_enforces_configured_limit_in_query_and_export_modes(
+    cli_env: object, tmp_path: Path, with_output: bool
+) -> None:
+    document = yaml.safe_load(cli_env.config_path.read_text(encoding="utf-8"))
+    document["cli"]["snapshot_max_bytes"] = 4
+    cli_env.config_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    server = cli_env.server
+    method = server.method_path("CommonService", "GetConfigSnapshot")
+    server.respond_value(
+        method,
+        common_pb2.GetConfigSnapshotResponse(
+            revision="equal-limit",
+            files=[_snapshot_file("a.yaml", b"aa"), _snapshot_file("b.yaml", b"bb")],
+        ),
+    )
+    destination = tmp_path / "equal"
+    arguments = ["config", "get", "collector", "--scope", "runtime"]
+    if with_output:
+        arguments.extend(("--output", str(destination)))
+    result = cli_env.subprocess_invoke(*arguments)
+    assert result.exit_code == 0, result.stdout
+    if with_output:
+        assert (destination / "a.yaml").read_bytes() == b"aa"
+        assert (destination / "b.yaml").read_bytes() == b"bb"
+
+    server.respond_value(
+        method,
+        common_pb2.GetConfigSnapshotResponse(
+            revision="cumulative-overflow",
+            files=[
+                _snapshot_file("a.yaml", b"aa"),
+                _snapshot_file("b.yaml", b"bb"),
+                _snapshot_file("c.yaml", b"c"),
+            ],
+        ),
+    )
+    overflow_destination = tmp_path / "overflow"
+    overflow_arguments = ["config", "get", "collector", "--scope", "runtime"]
+    if with_output:
+        overflow_arguments.extend(("--output", str(overflow_destination)))
+    rejected = cli_env.subprocess_invoke(*overflow_arguments)
+    assert rejected.exit_code == 2, rejected.stdout
+    assert rejected.json()["error_code"] == "ValueError"
+    assert not overflow_destination.exists()
+    assert not list(tmp_path.glob(".snapshot-*"))

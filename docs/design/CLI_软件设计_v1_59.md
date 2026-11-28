@@ -1652,7 +1652,7 @@ src/cli/
 ├── *_commands.py                # 管理、配置、诊断与业务命令入口
 ├── service_rpc.py               # 统一 内部 gRPC Client
 ├── runtime.py                   # CLI 进程编排与运行参数
-├── snapshot_io.py               # 配置快照读写和传输转换
+├── snapshot_commands.py          # 正式 CommonService 快照读取、校验与原子导出
 ├── process_manager.py           # 本机进程管理
 ├── network_probe.py             # 本地网络诊断编排
 └── ...                          # 其他已有单一职责模块
