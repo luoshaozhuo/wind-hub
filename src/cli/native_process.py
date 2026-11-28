@@ -309,7 +309,7 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
                 child = subprocess.Popen(
                     list(spec.argv),
                     cwd=spec.cwd,
-                    env={**os.environ, **spec.env},
+                    env={**os.environ, **spec.env, "PYTHONUNBUFFERED": "1"},
                     stdin=subprocess.DEVNULL,
                     stdout=logfile,
                     stderr=subprocess.STDOUT,
